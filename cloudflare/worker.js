@@ -15,7 +15,7 @@ const SEC_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "same-origin",
   "Content-Security-Policy":
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://images.are.na https://d2w9rnfcy7mm78.cloudfront.net; connect-src 'self' https://api.are.na; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
 };
 
 function json(data, status = 200) {
@@ -679,6 +679,29 @@ const PAGE = `<!DOCTYPE html>
   .seg{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
   .col-head .n{border-radius:6px}
 
+  /* -- Are.na-fed brand mark (rotating images from a board) -- */
+  .logo{position:relative;overflow:hidden}
+  .logo .logo-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .55s ease}
+  .logo svg{position:relative;z-index:1;transition:opacity .4s ease}
+  .logo.hasimg svg{opacity:0}
+  .logo.hasimg{box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+
+  /* -- load screen: Are.na image montage (~3s) -- */
+  .splash{position:fixed;inset:0;z-index:200;background:var(--dark);display:flex;align-items:center;
+    justify-content:center;overflow:hidden;transition:opacity .6s ease}
+  .splash.done{opacity:0;pointer-events:none}
+  .splash-img{position:absolute;inset:0;background-size:cover;background-position:center;opacity:.9}
+  .splash-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(20,20,19,.35),rgba(20,20,19,.78))}
+  .splash-ui{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;gap:13px;text-align:center}
+  .splash-mark{font-family:var(--serif);font-weight:500;font-size:46px;letter-spacing:-.02em;color:#fff;line-height:1}
+  .splash-sub{font-family:var(--mono);text-transform:uppercase;letter-spacing:.36em;font-size:11px;
+    color:rgba(255,255,255,.72);padding-left:.36em}
+  .splash-bar{width:220px;height:2px;background:rgba(255,255,255,.18);border-radius:2px;overflow:hidden;margin-top:6px}
+  .splash-bar>i{display:block;height:100%;width:0;background:var(--accent-dark)}
+  .splash-myth{font-family:var(--mono);font-size:11.5px;line-height:1.55;letter-spacing:.01em;
+    color:rgba(255,255,255,.72);max-width:360px;text-align:center;min-height:1.6em;transition:opacity .4s ease}
+  .splash-myth::before{content:"myth · ";color:var(--accent-dark);opacity:.9}
+
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
   /* ---------- live-app additions ---------- */
@@ -709,6 +732,17 @@ const PAGE = `<!DOCTYPE html>
 </head>
 <body>
 
+<div class="splash" id="splash">
+  <div class="splash-img" id="splashImg"></div>
+  <div class="splash-scrim"></div>
+  <div class="splash-ui">
+    <div class="splash-mark">9 Birds</div>
+    <div class="splash-sub">Team Board</div>
+    <div class="splash-bar"><i id="splashBar"></i></div>
+    <div class="splash-myth" id="splashMyth"></div>
+  </div>
+</div>
+
 <div class="gate hidden" id="gate">
   <div class="gate-card">
     <div class="logo"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c3-6 15-6 18 0-3 6-15 6-18 0Z"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg></div>
@@ -721,7 +755,7 @@ const PAGE = `<!DOCTYPE html>
 <div class="app">
   <aside class="side">
     <div class="brandmark">
-      <div class="logo"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c3-6 15-6 18 0-3 6-15 6-18 0Z"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg></div>
+      <div class="logo" id="brandLogo" title="Today’s image — Are.na"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c3-6 15-6 18 0-3 6-15 6-18 0Z"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg></div>
       <div><b>9 Birds</b><span>Creative — Team</span></div>
     </div>
     <div class="navsec" id="mainNav">
@@ -1309,6 +1343,96 @@ renderAll();          // graceful empty state before first response
 load();
 setInterval(load,15000);
 window.addEventListener("focus",load);
+
+/* --- Are.na visuals: ~3s montage load screen + daily brand mark (one fetch) --- */
+(function arenaVisuals(){
+ const ARENA_BOARD = "bracket-bracket-asterisk-colon";   /* Are.na board (Elena Foraker) */
+ const DUR = 3000;                                        /* load-screen duration (ms) */
+ const HARD_LIMIT = 3500;                                 /* absolute overlay removal (ms) */
+ const REDUCE = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+ const splash=document.getElementById("splash");
+ const simg=document.getElementById("splashImg");
+ const sbar=document.getElementById("splashBar");
+ const logo=document.getElementById("brandLogo");
+ const t0=(window.performance&&performance.now())?performance.now():Date.now();
+ let montage=null, mythTimer=null;
+
+ // Ted — the legend of a white Shih Tzu-Maltese who runs L.A.
+ const MYTHS=[
+  "Ted has never paid for parking in Silver Lake.",
+  "Ted got into Soho House before you did.",
+  "Ted turned down a Netflix deal — creative differences.",
+  "Ted does not fetch. The ball comes back out of respect.",
+  "Ted's groomer signed an NDA.",
+  "Ted has been to Erewhon more times than you have.",
+  "Ted walks himself. The leash is purely decorative.",
+  "Ted has never been rained on. L.A. wouldn't dare.",
+  "Ted invented the sad eyes. Everyone else is a cover band.",
+  "Ted is on the list. Ted is always on the list.",
+  "Ted knows a guy. Ted is the guy.",
+  "Ted has strong opinions about oat milk.",
+  "Ted was mistaken for a cloud and accepted the promotion.",
+  "Ted ghosted a talent agent and slept great.",
+  "Ted's paw print appreciates faster than L.A. real estate.",
+  "Ted has a standing 7am at the dog park. Alone.",
+  "Ted did not bark at the mailman — they reached an accord.",
+  "Ted's fur comes with its own SPF.",
+  "Ted never chases anything. Things arrive to Ted.",
+  "Ted once out-negotiated a Beverly Hills realtor.",
+  "Ted is fluent in three separate silences.",
+  "Ted's Letterboxd is more respected than most critics'."
+ ];
+ const mythEl=document.getElementById("splashMyth");
+ if(mythEl){
+  let mi=Math.floor(Math.random()*MYTHS.length);
+  mythEl.textContent=MYTHS[mi];
+  mythTimer=setInterval(()=>{ mythEl.style.opacity="0";
+    setTimeout(()=>{ mi=(mi+1)%MYTHS.length; mythEl.textContent=MYTHS[mi]; mythEl.style.opacity="1"; },300); },1600);
+ }
+
+ // progress bar 0 -> 100% over DUR
+ const prog=setInterval(()=>{
+  const now=(window.performance&&performance.now())?performance.now():Date.now();
+  const p=Math.min(1,(now-t0)/DUR);
+  if(sbar) sbar.style.width=(p*100)+"%";
+  if(p>=1) clearInterval(prog);
+ },60);
+
+ function dismiss(){
+  if(montage){ clearInterval(montage); montage=null; }
+  if(mythTimer){ clearInterval(mythTimer); mythTimer=null; }
+  if(splash){ splash.classList.add("done"); setTimeout(()=>{ splash.style.display="none"; },700); }
+ }
+ setTimeout(dismiss, DUR);            // guaranteed dismissal even if the Are.na fetch never resolves
+ setTimeout(()=>{                     // hard removal — the overlay can never permanently block the app
+  dismiss();
+  if(splash && splash.parentNode) splash.parentNode.removeChild(splash);
+ }, HARD_LIMIT);
+
+ // brand-mark image element
+ let limg=null;
+ if(logo){ limg=document.createElement("img"); limg.className="logo-img"; limg.alt=""; limg.decoding="async"; logo.appendChild(limg); }
+
+ fetch(\`https://api.are.na/v2/channels/\${ARENA_BOARD}?per=100&sort=position&direction=desc\`)
+  .then(r=>r.ok?r.json():Promise.reject(r.status))
+  .then(d=>{
+   const urls=(d.contents||[])
+     .map(b=>b.image && ((b.image.large||b.image.display||b.image.original||b.image.thumb||{}).url))
+     .filter(Boolean);
+   if(!urls.length) return;
+   const pick=()=>urls[Math.floor(Math.random()*urls.length)];
+
+   // daily brand mark
+   if(limg){ const day=Math.floor(Date.now()/86400000); const u=urls[day%urls.length];
+     const pre=new Image(); pre.onload=()=>{ limg.src=u; logo.classList.add("hasimg"); limg.style.opacity="1"; }; pre.src=u; }
+
+   // splash montage — flicker random images until dismissed
+   const swap=u=>{ const im=new Image(); im.onload=()=>{ if(simg && splash && !splash.classList.contains("done")) simg.style.backgroundImage=\`url("\${u}")\`; }; im.src=u; };
+   swap(pick());
+   if(!REDUCE) montage=setInterval(()=>swap(pick()), 200);
+  })
+  .catch(()=>{ /* splash still auto-dismisses on schedule; brand mark keeps the bird icon */ });
+})();
 
 </script>
 </body>
