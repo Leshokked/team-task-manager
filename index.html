@@ -432,13 +432,20 @@
   .seg{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
   .col-head .n{border-radius:6px}
 
+  /* -- Are.na-fed brand mark (rotating images from a board) -- */
+  .logo{position:relative;overflow:hidden}
+  .logo .logo-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .55s ease}
+  .logo svg{position:relative;z-index:1;transition:opacity .4s ease}
+  .logo.hasimg svg{opacity:0}
+  .logo.hasimg{box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 
 <div class="app">
   <aside class="side">
     <div class="brandmark">
-      <div class="logo"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c3-6 15-6 18 0-3 6-15 6-18 0Z"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg></div>
+      <div class="logo" id="brandLogo" title="Live from Are.na"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c3-6 15-6 18 0-3 6-15 6-18 0Z"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg></div>
       <div><b>9 Birds</b><span>Creative — Team</span></div>
     </div>
     <div class="navsec" id="mainNav">
@@ -871,5 +878,31 @@ const REDUCE = window.matchMedia && window.matchMedia('(prefers-reduced-motion: 
   card.classList.remove('tilting');
   card.style.transform=''; card.style.boxShadow='';
  });
+})();
+
+/* --- Are.na-fed brand mark: pulls images from a board and rotates them --- */
+(function arenaBrand(){
+ const ARENA_BOARD = "arena-influences";   /* ← swap to your Are.na board slug */
+ const logo=document.getElementById('brandLogo'); if(!logo) return;
+ const img=document.createElement('img'); img.className='logo-img'; img.alt=''; img.decoding='async';
+ logo.appendChild(img);
+ fetch(`https://api.are.na/v2/channels/${ARENA_BOARD}?per=48&sort=position&direction=desc`)
+  .then(r=>r.ok?r.json():Promise.reject(r.status))
+  .then(d=>{
+   const urls=(d.contents||[])
+     .map(b=>b.image && ((b.image.large||b.image.display||b.image.original||b.image.thumb||{}).url))
+     .filter(Boolean);
+   if(!urls.length) return;
+   let i=Math.floor(Math.random()*urls.length);
+   const show=()=>{
+    const u=urls[i%urls.length]; i++;
+    const pre=new Image();
+    pre.onload=()=>{ img.style.opacity='0'; setTimeout(()=>{ img.src=u; logo.classList.add('hasimg'); img.style.opacity='1'; },220); };
+    pre.src=u;
+   };
+   show();
+   if(!REDUCE) setInterval(show, 6000);
+  })
+  .catch(()=>{ /* keep the bird fallback: private board, offline, or blocked */ });
 })();
 </script>
