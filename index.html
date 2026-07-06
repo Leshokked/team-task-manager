@@ -1,5 +1,8 @@
 <meta charset="utf-8">
 <title>9 Birds Creative — Team Task Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Archivo:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <meta name="description" content="The 9 Birds Creative team task manager — a Kanban board across every brand, a focused single-task view, and filter-by-teammate. Built in the 9 Birds visual identity.">
 <meta property="og:type" content="website">
 <meta property="og:title" content="9 Birds Creative — Team Task Manager">
@@ -19,12 +22,14 @@
     --good:#3C8C5F; --good-wash:#E4F0E8;
     --warn:#B5842B; --warn-wash:#F3ECDD;
     --crit:#C0392B; --crit-wash:#F3E2DF;
-    --shadow-sm:0 1px 2px rgba(36,36,34,.05);
-    --shadow-md:0 8px 26px -10px rgba(36,36,34,.22);
-    --r:10px;
-    --serif:Georgia,"Times New Roman",serif;
-    --sans:"Helvetica Neue",Helvetica,Arial,-apple-system,system-ui,sans-serif;
-    --mono:ui-monospace,"SF Mono",Menlo,monospace;
+    --shadow-sm:0 1px 2px rgba(36,36,34,.04);
+    --shadow-md:0 14px 40px -18px rgba(36,36,34,.28);
+    --r:8px;
+    --grid:rgba(36,36,34,.055);
+    --grid-dark:rgba(255,255,255,.05);
+    --serif:"Fraunces",Georgia,"Times New Roman",serif;
+    --sans:"Archivo","Helvetica Neue",Arial,system-ui,sans-serif;
+    --mono:"Space Mono",ui-monospace,"SF Mono",Menlo,monospace;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
@@ -359,6 +364,74 @@
     .tv-main,.tv-rail{overflow:visible}
     .tv-rail{border-left:none;border-top:1px solid var(--border)}
   }
+  /* ============================================================
+     AESTHETIC LAYER — "research surface" (Are.na-influenced)
+     dot-grid, monospace micro-typography, index marks, crop ticks
+     ============================================================ */
+
+  /* -- dot-grid graph-paper surfaces (the star: board as a curated index) -- */
+  .content{background-image:radial-gradient(var(--grid) 1px, transparent 1px);background-size:24px 24px;background-position:12px 12px}
+  .side{background-image:radial-gradient(var(--grid-dark) 1px, transparent 1px);background-size:22px 22px}
+
+  /* -- display type (Fraunces, optical) -- */
+  .topbar .title h1,.vhead h2,.tv-main h2,.drawer h2,.dr-body h2{font-weight:500;letter-spacing:-.02em}
+  .stat .v,.focus .big{font-weight:500;letter-spacing:-.025em}
+  .brandmark b{font-size:20px;font-weight:500;letter-spacing:-.01em}
+
+  /* -- monospace micro-typography (labels / data / metadata) -- */
+  .flabel,.navsec .label,.stat .k,.dsec-t,.rail-k,.calhd .dow,
+  .col-head .n,.nav .count,.brandrow .count,.due,.metaic,.progress .ptop,
+  .cap .cn,.hbar .hval,.colw .clab,.comment .ctime,.calchip .cb,.search kbd,
+  .stat .sub,.lmeta,.legend span,.chip,.seg,.statuspill,.tag,.prio,
+  .clearfilter,.code,.colidx,.board-coord,.brandmark span,.subprog .sc,
+  .col-head .add,.trend{font-family:var(--mono)}
+
+  .flabel,.navsec .label,.stat .k,.dsec-t,.rail-k,.calhd .dow{letter-spacing:.11em}
+
+  /* -- flatten the chrome: hairlines over fills, Are.na restraint -- */
+  .tag{background:transparent;border:none;padding:0;color:var(--ink-soft);
+    text-transform:uppercase;letter-spacing:.05em;font-size:10px;font-weight:400}
+  .prio{background:transparent;border:none;padding:0;font-size:9.5px;letter-spacing:.06em}
+  .card-top{margin-bottom:11px;justify-content:flex-start;gap:9px}
+  .card-top .prio{margin-left:auto}
+  .card-top .tag{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .code{font-size:10px;font-weight:700;letter-spacing:.02em;color:var(--accent)}
+  .prio.medium{color:var(--ink-faint)}
+
+  /* -- column index numbering (01–04): the recurring motif -- */
+  .colidx{font-size:12px;font-weight:700;letter-spacing:.04em;color:var(--ink-faint);
+    font-variant-numeric:tabular-nums}
+  .col-head .swatch{width:6px;height:6px;border-radius:50%}
+
+  /* -- crop-mark corner ticks on panels (design-tool micrograph) -- */
+  .stat,.panel,.calday,.focus{position:relative}
+  .stat::before,.panel::before,.focus::before{content:"";position:absolute;top:9px;right:9px;
+    width:7px;height:7px;border-top:1px solid currentColor;border-right:1px solid currentColor;
+    opacity:.28;pointer-events:none;color:var(--ink-faint)}
+  .focus::before{color:var(--on-dark-soft);opacity:.5}
+
+  /* -- board coordinate header (aspirational index line) -- */
+  .board-coord{display:flex;align-items:center;gap:16px;padding:0 2px 14px;margin-bottom:18px;
+    border-bottom:1px solid var(--border);font-family:var(--mono);text-transform:uppercase;
+    letter-spacing:.1em;font-size:10px;color:var(--ink-faint)}
+  .board-coord .lead{color:var(--accent);font-weight:700}
+  .board-coord .cx{opacity:.8}
+  .board-coord .cx:last-child{margin-left:auto}
+
+  /* -- cards: flatter, precise -- */
+  .card{box-shadow:none;border-radius:8px}
+  .card:hover{box-shadow:var(--shadow-md)}
+  .stat,.panel,.list,.calday,.drawer,.focus{box-shadow:none}
+
+  /* -- topbar coordinate subtitle -- */
+  .topbar .title p{font-family:var(--mono);text-transform:uppercase;letter-spacing:.09em;font-size:10px;margin-top:3px}
+  .brandmark span{text-transform:uppercase;letter-spacing:.12em;font-size:9px}
+
+  /* -- filter chips / segmented: outlined, mono -- */
+  .chip{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;border-radius:6px}
+  .seg{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+  .col-head .n{border-radius:6px}
+
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 
@@ -393,7 +466,7 @@
 
   <div class="main">
     <div class="topbar">
-      <div class="title"><h1 id="vTitle">Team Board</h1><p id="vSub">Week 27 · July 5, 2026</p></div>
+      <div class="title"><h1 id="vTitle">Team Board</h1><p id="vSub">Wk.27 — 07.05.26 — 15 active</p></div>
       <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input placeholder="Search tasks, brands, people" aria-label="Search"><kbd>⌘K</kbd></label>
       <div class="spacer"></div>
       <div class="segmented" id="viewToggle">
@@ -418,6 +491,7 @@
     <div class="content">
       <!-- BOARD -->
       <section class="view active" id="view-board">
+        <div class="board-coord"><span class="lead">Index</span><span class="cx">15 active · 8 brands</span><span class="cx">Wk.27 / 07.05.26</span></div>
         <div class="stats">
           <div class="stat"><div class="k">Due this week</div><div class="v">12</div><div class="bar"><i style="width:64%;background:var(--accent)"></i></div></div>
           <div class="stat"><div class="k">In progress</div><div class="v neutral">7</div><div class="sub">Across 6 brands</div></div>
@@ -486,6 +560,8 @@ const people={CN:{name:"Carlos",color:"#2E6EDD"},BR:{name:"Brandon",color:"#6B4F
 const columns=[{id:"todo",name:"To Do · This Week",color:"#969188"},{id:"progress",name:"In Progress",color:"#2E6EDD"},{id:"review",name:"In Review",color:"#B5842B"},{id:"done",name:"Done",color:"#3C8C5F"}];
 const colColor={todo:"#969188",progress:"#2E6EDD",review:"#B5842B",done:"#3C8C5F"};
 const colName={todo:"To Do",progress:"In Progress",review:"In Review",done:"Done"};
+const codeMap={"AUTEUR":"AUT","Coffee Machine Depot":"CMD","Markibar USA":"MRK","JM · Convi":"JMC","Lost Explorer":"LEX","Second Layer":"SL2","Re/creation Cafe":"RCC","9 Birds Creative":"9BC"};
+const taskCode=t=>(codeMap[t.brand]||t.brand.slice(0,3).toUpperCase())+"·"+String(t.id%1000).padStart(3,"0");
 const checklists={
   content:["Outline","First draft","Internal review","Revisions","Publish"],
   ad:["Concept","Copy","Design creatives","Client approval","Schedule","Launch"],
@@ -524,7 +600,7 @@ const av=(w,cls="")=>`<div class="avatar ${cls}" style="background:${people[w].c
 function taskCard(t){
  const pct=Math.round(t.done/t.total*100), barC=(t.done_||pct===100)?"var(--good)":"var(--accent)";
  return `<article class="card p-${t.prio} ${t.done_?'done':''}" data-id="${t.id}" data-prio="${t.prio}" data-who="${t.who}">
-  <div class="card-top"><span class="tag"><span class="dot" style="background:${t.bc}"></span>${t.brand}</span><span class="prio ${t.prio}">${t.prio}</span></div>
+  <div class="card-top"><span class="code">${taskCode(t)}</span><span class="tag"><span class="dot" style="background:${t.bc}"></span>${t.brand}</span><span class="prio ${t.prio}">${t.prio}</span></div>
   <h4>${t.title}</h4>
   <div class="progress"><div class="ptop"><span>Checklist</span><span class="tnum">${t.done}/${t.total}</span></div><div class="bar"><i style="width:${pct}%;background:${barC}"></i></div></div>
   <div class="card-foot">${av(t.who)}<span class="due ${dueClass(t.state)}">${ic.cal}${t.done_?'Done '+t.due:t.due}</span>
@@ -537,10 +613,10 @@ function sortForFilter(items){
  return items.slice().sort((a,b)=>(a.who===fWho?0:1)-(b.who===fWho?0:1));
 }
 function renderBoard(){
- document.getElementById('boardView').innerHTML=columns.map(col=>{
+ document.getElementById('boardView').innerHTML=columns.map((col,ci)=>{
   const items=sortForFilter(tasks.filter(t=>t.col===col.id));
   return `<section class="col ${col.id==='done'?'done-col':''}" data-col="${col.id}">
-   <div class="col-head"><span class="swatch" style="background:${col.color}"></span><h3>${col.name}</h3><span class="n tnum">${items.length}</span>
+   <div class="col-head"><span class="colidx">${String(ci+1).padStart(2,'0')}</span><span class="swatch" style="background:${col.color}"></span><h3>${col.name}</h3><span class="n tnum">${items.length}</span>
    <button class="add" aria-label="Add">${ '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>'}</button></div>
    <div class="col-body">${items.map(taskCard).join('')}</div></section>`;
  }).join('');
@@ -699,7 +775,7 @@ renderList(document.getElementById('mineView'),tasks.filter(t=>t.who==='CN'),tru
 renderCalendar();renderReports();
 
 // ---- routing (nav) ----
-const titles={board:["Team Board","Week 27 · July 5, 2026"],mine:["My Tasks","Carlos Nuñez · Week 27"],calendar:["Calendar","Week 27 · July 2026"],reports:["Reports","Week 27 · July 2026"]};
+const titles={board:["Team Board","Wk.27 — 07.05.26 — 15 active"],mine:["My Tasks","Carlos Nuñez — 4 assigned"],calendar:["Calendar","Wk.27 — 06.30–07.06"],reports:["Reports","Wk.27 — team analytics"]};
 function route(view){
  document.querySelectorAll('#mainNav .nav').forEach(n=>n.classList.toggle('active',n.dataset.view===view));
  document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id==='view-'+view));
@@ -777,15 +853,15 @@ const REDUCE = window.matchMedia && window.matchMedia('(prefers-reduced-motion: 
 (function tiltCards(){
  const board=document.getElementById('boardView');
  if(!board||REDUCE) return;
- const MAXX=10, MAXY=13;                       // degrees of tilt
+ const MAXX=5, MAXY=6;                         // degrees of tilt (refined, not showy)
  board.addEventListener('pointermove',e=>{
   const card=e.target.closest('.card'); if(!card) return;
   const r=card.getBoundingClientRect();
   const px=(e.clientX-r.left)/r.width-0.5;      // -0.5 .. 0.5
   const py=(e.clientY-r.top)/r.height-0.5;
   card.classList.add('tilting');
-  card.style.transform=`perspective(820px) rotateX(${(-py*MAXX).toFixed(2)}deg) rotateY(${(px*MAXY).toFixed(2)}deg) translateZ(10px)`;
-  card.style.boxShadow=`${(-px*22).toFixed(0)}px ${(-py*18+18).toFixed(0)}px 40px -16px rgba(36,36,34,.34)`;
+  card.style.transform=`perspective(900px) rotateX(${(-py*MAXX).toFixed(2)}deg) rotateY(${(px*MAXY).toFixed(2)}deg) translateZ(6px)`;
+  card.style.boxShadow=`${(-px*14).toFixed(0)}px ${(-py*12+16).toFixed(0)}px 34px -18px rgba(36,36,34,.26)`;
   card.style.setProperty('--gx',((px+0.5)*100).toFixed(1)+'%');
   card.style.setProperty('--gy',((py+0.5)*100).toFixed(1)+'%');
  });
