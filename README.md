@@ -20,7 +20,7 @@ The team does NOT need this repo to work — use the live app. Pick your name on
 - `app/migrations/` — complete database schema + data history
 - `cloudflare/worker.js` — self-contained Cloudflare Worker port (page + API in one file, no build step)
 - `cloudflare/schema/` — D1 schema + seed data (idempotent, applied at deploy)
-- `.github/workflows/deploy.yml` — one-click deploy to Cloudflare Workers
+- `cloudflare/deploy.yml` — the deploy workflow (move to `.github/workflows/deploy.yml`, see below)
 - `app/design-brief.md` — design language notes
 
 ## Architecture
@@ -33,6 +33,7 @@ Maintained with Louie. Questions → Carlos.
 
 The `cloudflare/` port deploys itself from GitHub Actions. Set it up once; after that every push to `main` redeploys automatically, and the team just uses the URL.
 
+0. Put the workflow in place (the automation that pushed this code wasn't allowed to write workflow files): on github.com open `cloudflare/deploy.yml`, copy its contents, then create a new file at `.github/workflows/deploy.yml` and paste. Or locally: `git mv cloudflare/deploy.yml .github/workflows/deploy.yml && git commit && git push`.
 1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com).
 2. Copy your **Account ID** — it's in the right-hand sidebar of the dashboard (Workers & Pages overview).
 3. Create an API token: **My Profile → API Tokens → Create Token** → use the **"Edit Cloudflare Workers"** template, then add the **D1 → Edit** permission before creating it. Copy the token.
