@@ -451,7 +451,9 @@
     color:rgba(255,255,255,.72);padding-left:.36em}
   .splash-bar{width:220px;height:2px;background:rgba(255,255,255,.18);border-radius:2px;overflow:hidden;margin-top:6px}
   .splash-bar>i{display:block;height:100%;width:0;background:var(--accent-dark)}
-  .splash-meta{font-family:var(--mono);text-transform:uppercase;letter-spacing:.2em;font-size:10px;color:rgba(255,255,255,.55)}
+  .splash-myth{font-family:var(--mono);font-size:11.5px;line-height:1.55;letter-spacing:.01em;
+    color:rgba(255,255,255,.72);max-width:360px;text-align:center;min-height:1.6em;transition:opacity .4s ease}
+  .splash-myth::before{content:"myth · ";color:var(--accent-dark);opacity:.9}
 
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -463,7 +465,7 @@
     <div class="splash-mark">9 Birds</div>
     <div class="splash-sub">Team Board</div>
     <div class="splash-bar"><i id="splashBar"></i></div>
-    <div class="splash-meta"><span id="splashPct">00</span> · loading · are.na</div>
+    <div class="splash-myth" id="splashMyth"></div>
   </div>
 </div>
 
@@ -915,7 +917,40 @@ const REDUCE = window.matchMedia && window.matchMedia('(prefers-reduced-motion: 
  const spct=document.getElementById('splashPct');
  const logo=document.getElementById('brandLogo');
  const t0=(window.performance&&performance.now())?performance.now():Date.now();
- let montage=null;
+ let montage=null, mythTimer=null;
+
+ // Ted — the legend of a white Shih Tzu-Maltese who runs L.A.
+ const MYTHS=[
+  "Ted has never paid for parking in Silver Lake.",
+  "Ted got into Soho House before you did.",
+  "Ted turned down a Netflix deal — creative differences.",
+  "Ted does not fetch. The ball comes back out of respect.",
+  "Ted's groomer signed an NDA.",
+  "Ted has been to Erewhon more times than you have.",
+  "Ted walks himself. The leash is purely decorative.",
+  "Ted has never been rained on. L.A. wouldn't dare.",
+  "Ted invented the sad eyes. Everyone else is a cover band.",
+  "Ted is on the list. Ted is always on the list.",
+  "Ted knows a guy. Ted is the guy.",
+  "Ted has strong opinions about oat milk.",
+  "Ted was mistaken for a cloud and accepted the promotion.",
+  "Ted ghosted a talent agent and slept great.",
+  "Ted's paw print appreciates faster than L.A. real estate.",
+  "Ted has a standing 7am at the dog park. Alone.",
+  "Ted did not bark at the mailman — they reached an accord.",
+  "Ted's fur comes with its own SPF.",
+  "Ted never chases anything. Things arrive to Ted.",
+  "Ted once out-negotiated a Beverly Hills realtor.",
+  "Ted is fluent in three separate silences.",
+  "Ted's Letterboxd is more respected than most critics'."
+ ];
+ const mythEl=document.getElementById('splashMyth');
+ if(mythEl){
+  let mi=Math.floor(Math.random()*MYTHS.length);
+  mythEl.textContent=MYTHS[mi];
+  mythTimer=setInterval(()=>{ mythEl.style.opacity='0';
+    setTimeout(()=>{ mi=(mi+1)%MYTHS.length; mythEl.textContent=MYTHS[mi]; mythEl.style.opacity='1'; },300); },1600);
+ }
 
  // progress bar 00 → 100 over DUR
  const prog=setInterval(()=>{
@@ -928,6 +963,7 @@ const REDUCE = window.matchMedia && window.matchMedia('(prefers-reduced-motion: 
 
  function dismiss(){
   if(montage) clearInterval(montage);
+  if(mythTimer) clearInterval(mythTimer);
   if(splash){ splash.classList.add('done'); setTimeout(()=>{ splash.style.display='none'; },700); }
  }
  setTimeout(dismiss, DUR);            // guaranteed dismissal even if the board never loads
