@@ -445,7 +445,7 @@
 <div class="app">
   <aside class="side">
     <div class="brandmark">
-      <div class="logo" id="brandLogo" title="Live from Are.na"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c3-6 15-6 18 0-3 6-15 6-18 0Z"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg></div>
+      <div class="logo" id="brandLogo" title="Today’s image — Are.na"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c3-6 15-6 18 0-3 6-15 6-18 0Z"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg></div>
       <div><b>9 Birds</b><span>Creative — Team</span></div>
     </div>
     <div class="navsec" id="mainNav">
@@ -882,26 +882,22 @@ const REDUCE = window.matchMedia && window.matchMedia('(prefers-reduced-motion: 
 
 /* --- Are.na-fed brand mark: pulls images from a board and rotates them --- */
 (function arenaBrand(){
- const ARENA_BOARD = "arena-influences";   /* ← swap to your Are.na board slug */
+ const ARENA_BOARD = "bracket-bracket-asterisk-colon";   /* Are.na board — the icon shows one image per day */
  const logo=document.getElementById('brandLogo'); if(!logo) return;
  const img=document.createElement('img'); img.className='logo-img'; img.alt=''; img.decoding='async';
  logo.appendChild(img);
- fetch(`https://api.are.na/v2/channels/${ARENA_BOARD}?per=48&sort=position&direction=desc`)
+ fetch(`https://api.are.na/v2/channels/${ARENA_BOARD}?per=100&sort=position&direction=desc`)
   .then(r=>r.ok?r.json():Promise.reject(r.status))
   .then(d=>{
    const urls=(d.contents||[])
      .map(b=>b.image && ((b.image.large||b.image.display||b.image.original||b.image.thumb||{}).url))
      .filter(Boolean);
    if(!urls.length) return;
-   let i=Math.floor(Math.random()*urls.length);
-   const show=()=>{
-    const u=urls[i%urls.length]; i++;
-    const pre=new Image();
-    pre.onload=()=>{ img.style.opacity='0'; setTimeout(()=>{ img.src=u; logo.classList.add('hasimg'); img.style.opacity='1'; },220); };
-    pre.src=u;
-   };
-   show();
-   if(!REDUCE) setInterval(show, 6000);
+   const day=Math.floor(Date.now()/86400000);      // days since epoch → one image per calendar day
+   const u=urls[day % urls.length];
+   const pre=new Image();
+   pre.onload=()=>{ img.src=u; logo.classList.add('hasimg'); img.style.opacity='1'; };
+   pre.src=u;
   })
   .catch(()=>{ /* keep the bird fallback: private board, offline, or blocked */ });
 })();
