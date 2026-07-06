@@ -439,8 +439,33 @@
   .logo.hasimg svg{opacity:0}
   .logo.hasimg{box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
 
+  /* -- load screen: Are.na image montage (~3s) -- */
+  .splash{position:fixed;inset:0;z-index:200;background:var(--dark);display:flex;align-items:center;
+    justify-content:center;overflow:hidden;transition:opacity .6s ease}
+  .splash.done{opacity:0;pointer-events:none}
+  .splash-img{position:absolute;inset:0;background-size:cover;background-position:center;opacity:.9}
+  .splash-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(20,20,19,.35),rgba(20,20,19,.78))}
+  .splash-ui{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;gap:13px;text-align:center}
+  .splash-mark{font-family:var(--serif);font-weight:500;font-size:46px;letter-spacing:-.02em;color:#fff;line-height:1}
+  .splash-sub{font-family:var(--mono);text-transform:uppercase;letter-spacing:.36em;font-size:11px;
+    color:rgba(255,255,255,.72);padding-left:.36em}
+  .splash-bar{width:220px;height:2px;background:rgba(255,255,255,.18);border-radius:2px;overflow:hidden;margin-top:6px}
+  .splash-bar>i{display:block;height:100%;width:0;background:var(--accent-dark)}
+  .splash-meta{font-family:var(--mono);text-transform:uppercase;letter-spacing:.2em;font-size:10px;color:rgba(255,255,255,.55)}
+
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
+
+<div class="splash" id="splash">
+  <div class="splash-img" id="splashImg"></div>
+  <div class="splash-scrim"></div>
+  <div class="splash-ui">
+    <div class="splash-mark">9 Birds</div>
+    <div class="splash-sub">Team Board</div>
+    <div class="splash-bar"><i id="splashBar"></i></div>
+    <div class="splash-meta"><span id="splashPct">00</span> · loading · are.na</div>
+  </div>
+</div>
 
 <div class="app">
   <aside class="side">
@@ -880,12 +905,37 @@ const REDUCE = window.matchMedia && window.matchMedia('(prefers-reduced-motion: 
  });
 })();
 
-/* --- Are.na-fed brand mark: pulls images from a board and rotates them --- */
-(function arenaBrand(){
- const ARENA_BOARD = "bracket-bracket-asterisk-colon";   /* Are.na board — the icon shows one image per day */
- const logo=document.getElementById('brandLogo'); if(!logo) return;
- const img=document.createElement('img'); img.className='logo-img'; img.alt=''; img.decoding='async';
- logo.appendChild(img);
+/* --- Are.na visuals: 3s montage load screen + daily brand mark (one fetch) --- */
+(function arenaVisuals(){
+ const ARENA_BOARD = "bracket-bracket-asterisk-colon";   /* Are.na board */
+ const DUR = 3000;                                        /* load-screen duration (ms) */
+ const splash=document.getElementById('splash');
+ const simg=document.getElementById('splashImg');
+ const sbar=document.getElementById('splashBar');
+ const spct=document.getElementById('splashPct');
+ const logo=document.getElementById('brandLogo');
+ const t0=(window.performance&&performance.now())?performance.now():Date.now();
+ let montage=null;
+
+ // progress bar 00 → 100 over DUR
+ const prog=setInterval(()=>{
+  const now=(window.performance&&performance.now())?performance.now():Date.now();
+  const p=Math.min(1,(now-t0)/DUR);
+  if(sbar) sbar.style.width=(p*100)+'%';
+  if(spct) spct.textContent=String(Math.round(p*100)).padStart(2,'0');
+  if(p>=1) clearInterval(prog);
+ },60);
+
+ function dismiss(){
+  if(montage) clearInterval(montage);
+  if(splash){ splash.classList.add('done'); setTimeout(()=>{ splash.style.display='none'; },700); }
+ }
+ setTimeout(dismiss, DUR);            // guaranteed dismissal even if the board never loads
+
+ // brand-mark image element
+ let limg=null;
+ if(logo){ limg=document.createElement('img'); limg.className='logo-img'; limg.alt=''; limg.decoding='async'; logo.appendChild(limg); }
+
  fetch(`https://api.are.na/v2/channels/${ARENA_BOARD}?per=100&sort=position&direction=desc`)
   .then(r=>r.ok?r.json():Promise.reject(r.status))
   .then(d=>{
@@ -893,12 +943,17 @@ const REDUCE = window.matchMedia && window.matchMedia('(prefers-reduced-motion: 
      .map(b=>b.image && ((b.image.large||b.image.display||b.image.original||b.image.thumb||{}).url))
      .filter(Boolean);
    if(!urls.length) return;
-   const day=Math.floor(Date.now()/86400000);      // days since epoch → one image per calendar day
-   const u=urls[day % urls.length];
-   const pre=new Image();
-   pre.onload=()=>{ img.src=u; logo.classList.add('hasimg'); img.style.opacity='1'; };
-   pre.src=u;
+   const pick=()=>urls[Math.floor(Math.random()*urls.length)];
+
+   // daily brand mark
+   if(limg){ const day=Math.floor(Date.now()/86400000); const u=urls[day%urls.length];
+     const pre=new Image(); pre.onload=()=>{ limg.src=u; logo.classList.add('hasimg'); limg.style.opacity='1'; }; pre.src=u; }
+
+   // splash montage — flicker random images until dismissed
+   const swap=u=>{ const im=new Image(); im.onload=()=>{ if(simg && splash && !splash.classList.contains('done')) simg.style.backgroundImage=`url("${u}")`; }; im.src=u; };
+   swap(pick());
+   if(!REDUCE) montage=setInterval(()=>swap(pick()), 200);
   })
-  .catch(()=>{ /* keep the bird fallback: private board, offline, or blocked */ });
+  .catch(()=>{ /* splash still auto-dismisses; brand mark keeps the bird */ });
 })();
 </script>
