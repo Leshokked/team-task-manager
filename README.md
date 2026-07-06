@@ -18,6 +18,9 @@ The team does NOT need this repo to work — use the live app. Pick your name on
 - `app/src/lib/api/board.functions.ts` — server functions (tasks, checklists, comments, week rollover)
 - `app/src/styles.css` — the design system
 - `app/migrations/` — complete database schema + data history
+- `cloudflare/worker.js` — self-contained Cloudflare Worker port (page + API in one file, no build step)
+- `cloudflare/schema/` — D1 schema + seed data (idempotent, applied at deploy)
+- `.github/workflows/deploy.yml` — one-click deploy to Cloudflare Workers
 - `app/design-brief.md` — design language notes
 
 ## Architecture
@@ -25,3 +28,23 @@ The team does NOT need this repo to work — use the live app. Pick your name on
 React 19 + TanStack Start, server-rendered on a Cloudflare Worker, with a D1 (SQLite) database. The `app/` source expects that runtime; migrations run at deploy.
 
 Maintained with Louie. Questions → Carlos.
+
+## Go live on your own Cloudflare (one-time)
+
+The `cloudflare/` port deploys itself from GitHub Actions. Set it up once; after that every push to `main` redeploys automatically, and the team just uses the URL.
+
+1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com).
+2. Copy your **Account ID** — it's in the right-hand sidebar of the dashboard (Workers & Pages overview).
+3. Create an API token: **My Profile → API Tokens → Create Token** → use the **"Edit Cloudflare Workers"** template, then add the **D1 → Edit** permission before creating it. Copy the token.
+4. In this GitHub repo: **Settings → Secrets and variables → Actions** → add two repository secrets:
+   - `CLOUDFLARE_API_TOKEN` — the token from step 3
+   - `CLOUDFLARE_ACCOUNT_ID` — the id from step 2
+5. Go to the **Actions** tab → select the **Deploy** workflow → **Run workflow**.
+
+The workflow creates the D1 database (`ninebirds-board`), applies the schema and seed data (safe to re-run), and deploys the Worker. The board will be live at:
+
+```
+https://ninebirds-board.<your-subdomain>.workers.dev
+```
+
+That URL is all the team needs — pick your name once and go. No accounts, no installs.

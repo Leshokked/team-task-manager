@@ -1,0 +1,11 @@
+name = "ninebirds-board"
+main = "cloudflare/worker.js"
+compatibility_date = "2026-07-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ninebirds-board"
+database_id = "PLACEHOLDER_DB_ID"
+# Schema lives in cloudflare/schema; the deploy workflow applies both files
+# with `wrangler d1 execute` (they are idempotent), so no migration state is needed.
+migrations_dir = "cloudflare/schema"
