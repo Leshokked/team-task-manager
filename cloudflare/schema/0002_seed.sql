@@ -38,3 +38,15 @@ INSERT OR IGNORE INTO tasks (id, week, person, title, brand, day, status, prio, 
 INSERT OR IGNORE INTO tasks (id, week, person, title, brand, day, status, prio, carry, sort, updated_by) VALUES ('r06', '2026-07-06', 'riley', '3 hard feed posts for CDLL this week', 'Cout De La Liberte', 'Any', 'todo', 'high', 0, 6, '');
 INSERT OR IGNORE INTO tasks (id, week, person, title, brand, day, status, prio, carry, sort, updated_by) VALUES ('r08', '2026-07-06', 'riley', 'Return clothes to the warehouse', 'Cout De La Liberte', 'Mon', 'done', 'urgent', 0, 8, 'Riley');
 INSERT OR IGNORE INTO checklist (id, task_id, label, done, sort) VALUES ('557383512d26', 'r08', 'Respond to Diego and Erin ASAP', 1, 1);
+INSERT OR IGNORE INTO events (id, title, brand, date_start, date_end, venue, owner, status, notes) VALUES
+('ev-auteur-01','AUTEUR Launch Event — new product line','AUTEUR',NULL,NULL,'TBD','jess','confirmed','Master checklist owned by Jess. Lock: payments, venue/date, guest list.'),
+('ev-jm-0728','$2 Cold Brews','Jurassic Magic','2026-07-28',NULL,'Jurassic Magic','angela','confirmed',''),
+('ev-jm-0801','[JM2] Drink Launch: Espresso Sunrise / Jazz & Journals w/ Michah','Jurassic Magic','2026-08-01',NULL,'JM2','angela','confirmed',''),
+('ev-jm-0804','$2 Cold Brews','Jurassic Magic','2026-08-04',NULL,'Jurassic Magic','angela','confirmed',''),
+('ev-jm-0808','[JM1] Summer Camp Wk 2: Friendship Bracelets + Tie Dye','Jurassic Magic','2026-08-08',NULL,'JM1','angela','confirmed',''),
+('ev-jm-0811','$2 off Cold Brews','Jurassic Magic','2026-08-11',NULL,'Jurassic Magic','angela','confirmed',''),
+('ev-jm-0812','LAUSD Back in School','Jurassic Magic','2026-08-12',NULL,'Jurassic Magic','angela','confirmed',''),
+('ev-jm-0815','[JM2] Neighborhood Cleanup Day','Jurassic Magic','2026-08-15',NULL,'JM2','angela','confirmed',''),
+('ev-jm-0818','$2 off Cold Brews','Jurassic Magic','2026-08-18',NULL,'Jurassic Magic','angela','confirmed',''),
+('ev-jm-0825','$2 off Cold Brews','Jurassic Magic','2026-08-25',NULL,'Jurassic Magic','angela','confirmed',''),
+('ev-jm-0829','[JM] Zine + Magazine Fair','Jurassic Magic','2026-08-29','2026-08-30','Jurassic Magic','angela','confirmed','');

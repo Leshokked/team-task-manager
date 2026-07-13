@@ -35,3 +35,17 @@ CREATE TABLE IF NOT EXISTS meta (
 CREATE INDEX IF NOT EXISTS idx_tasks_week ON tasks(week);
 CREATE INDEX IF NOT EXISTS idx_checklist_task ON checklist(task_id);
 CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id);
+CREATE TABLE IF NOT EXISTS events (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  brand TEXT DEFAULT '',
+  date_start TEXT,           -- ISO date or NULL for TBD
+  date_end TEXT,             -- ISO date or NULL (single-day events)
+  venue TEXT DEFAULT '',
+  owner TEXT DEFAULT '',     -- person key: brandon/angela/riley/jess/carlos
+  status TEXT DEFAULT 'idea',-- idea | confirmed | promoted | done
+  notes TEXT DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_events_date ON events(date_start);

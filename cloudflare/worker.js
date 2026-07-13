@@ -10,6 +10,8 @@ const STATUSES = ["todo", "progress", "review", "done"];
 const PRIOS = ["urgent", "high", "medium", "low"];
 const DAYS = ["Any", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const ID_RE = /^[A-Za-z0-9-]{1,64}$/;
+const EVENT_STATUSES = ["idea", "confirmed", "promoted", "done"];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const SEC_HEADERS = {
   "X-Content-Type-Options": "nosniff",
@@ -140,6 +142,94 @@ async function rollWeek(db) {
   return json({ ok: true, week: next, carried: unfinished.length });
 }
 
+function eventDate(v) {
+  if (v === undefined) return undefined;
+  if (v === null || v === "") return null;
+  return typeof v === "string" && DATE_RE.test(v.trim()) ? v.trim() : false;
+}
+
+async function listEvents(db) {
+  const events =
+    (await db.prepare("SELECT * FROM events ORDER BY (date_start IS NOT NULL), date_start, created_at").all())
+      .results || [];
+  return json({ events });
+}
+
+async function createEvent(db, body) {
+  const title = str(body.title, 200);
+  if (!title) return bad("title is required (max 200 chars)");
+  const dateStart = eventDate(body.date_start);
+  if (dateStart === false) return bad("date_start must be an ISO date (YYYY-MM-DD) or null");
+  const dateEnd = eventDate(body.date_end);
+  if (dateEnd === false) return bad("date_end must be an ISO date (YYYY-MM-DD) or null");
+  if (body.owner !== undefined && body.owner !== "" && !PEOPLE.includes(body.owner))
+    return bad("owner must be '' or one of: " + PEOPLE.join(", "));
+  if (body.status !== undefined && !EVENT_STATUSES.includes(body.status))
+    return bad("status must be one of: " + EVENT_STATUSES.join(", "));
+  const brand = typeof body.brand === "string" ? body.brand.trim().slice(0, 60) : "";
+  const venue = typeof body.venue === "string" ? body.venue.trim().slice(0, 120) : "";
+  const notes = typeof body.notes === "string" ? body.notes.trim().slice(0, 500) : "";
+  const id = "ev-" + newId();
+  await db
+    .prepare(
+      "INSERT INTO events (id, title, brand, date_start, date_end, venue, owner, status, notes) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+    )
+    .bind(id, title, brand, dateStart ?? null, dateEnd ?? null, venue, body.owner || "", body.status || "idea", notes)
+    .run();
+  return json({ ok: true, id });
+}
+
+async function updateEvent(db, id, body) {
+  const sets = [];
+  const binds = [];
+  if (body.title !== undefined) {
+    const title = str(body.title, 200);
+    if (!title) return bad("title must be 1-200 chars");
+    sets.push("title=?" + (binds.push(title), binds.length));
+  }
+  if (body.brand !== undefined) {
+    if (typeof body.brand !== "string") return bad("brand must be a string (max 60 chars)");
+    sets.push("brand=?" + (binds.push(body.brand.trim().slice(0, 60)), binds.length));
+  }
+  if (body.date_start !== undefined) {
+    const d = eventDate(body.date_start);
+    if (d === false) return bad("date_start must be an ISO date (YYYY-MM-DD) or null");
+    sets.push("date_start=?" + (binds.push(d), binds.length));
+  }
+  if (body.date_end !== undefined) {
+    const d = eventDate(body.date_end);
+    if (d === false) return bad("date_end must be an ISO date (YYYY-MM-DD) or null");
+    sets.push("date_end=?" + (binds.push(d), binds.length));
+  }
+  if (body.venue !== undefined) {
+    if (typeof body.venue !== "string") return bad("venue must be a string (max 120 chars)");
+    sets.push("venue=?" + (binds.push(body.venue.trim().slice(0, 120)), binds.length));
+  }
+  if (body.owner !== undefined) {
+    if (body.owner !== "" && !PEOPLE.includes(body.owner))
+      return bad("owner must be '' or one of: " + PEOPLE.join(", "));
+    sets.push("owner=?" + (binds.push(body.owner), binds.length));
+  }
+  if (body.status !== undefined) {
+    if (!EVENT_STATUSES.includes(body.status)) return bad("status must be one of: " + EVENT_STATUSES.join(", "));
+    sets.push("status=?" + (binds.push(body.status), binds.length));
+  }
+  if (body.notes !== undefined) {
+    if (typeof body.notes !== "string") return bad("notes must be a string (max 500 chars)");
+    sets.push("notes=?" + (binds.push(body.notes.trim().slice(0, 500)), binds.length));
+  }
+  if (!sets.length)
+    return bad("Nothing to update — send title, brand, date_start, date_end, venue, owner, status and/or notes");
+  sets.push("updated_at=datetime('now')");
+  binds.push(id);
+  const r = await db
+    .prepare("UPDATE events SET " + sets.join(", ") + " WHERE id=?" + binds.length)
+    .bind(...binds)
+    .run();
+  if (!r.meta.changes) return bad("Event not found", 404);
+  return json({ ok: true });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -235,6 +325,26 @@ export default {
         const body = await readBody(request);
         if (body.by !== "Carlos") return bad("Only Carlos can roll the week", 403);
         return rollWeek(db);
+      }
+
+      if (path === "/api/events" && method === "GET") return listEvents(db);
+
+      if (path === "/api/events" && method === "POST") return createEvent(db, await readBody(request));
+
+      if ((m = path.match(/^\/api\/events\/([^/]+)\/delete$/)) && method === "POST") {
+        const id = m[1];
+        if (!ID_RE.test(id)) return bad("Invalid id");
+        const body = await readBody(request);
+        if (body.by !== "Carlos") return bad("Only Carlos can delete events", 403);
+        const r = await db.prepare("DELETE FROM events WHERE id=?1").bind(id).run();
+        if (!r.meta.changes) return bad("Event not found", 404);
+        return json({ ok: true });
+      }
+
+      if ((m = path.match(/^\/api\/events\/([^/]+)$/)) && method === "POST") {
+        const id = m[1];
+        if (!ID_RE.test(id)) return bad("Invalid id");
+        return updateEvent(db, id, await readBody(request));
       }
 
       return bad("Not found", 404);
@@ -728,6 +838,35 @@ const PAGE = `<!DOCTYPE html>
   .checkadd input:focus{border-bottom-color:var(--accent)}
   .checkadd input::placeholder{color:var(--ink-faint)}
   .btn-ghost.danger:hover{color:var(--crit);border-color:var(--crit)}
+
+  /* ---------- events ---------- */
+  .ev-head{display:flex;align-items:flex-end;gap:14px;margin-bottom:6px}
+  .ev-head .vhead{margin-bottom:0}
+  .ev-month{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-faint);padding:22px 2px 10px;display:flex;align-items:center;gap:12px}
+  .ev-month::after{content:"";flex:1;height:1px;background:var(--border)}
+  .ev-month .n{font-weight:600}
+  .evrow{display:flex;align-items:center;gap:14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 16px;margin-bottom:10px;transition:border-color .15s,box-shadow .2s}
+  .evrow:hover{border-color:var(--ink-faint);box-shadow:var(--shadow-md)}
+  .evrow.past{opacity:.42;filter:saturate(.45)}
+  .ev-date{width:82px;flex:none;text-align:center;font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.03em;color:var(--ink-soft);background:var(--surface-2);border:1px solid var(--border-soft);border-radius:7px;padding:8px 4px;line-height:1.3}
+  .ev-date.tbd{color:var(--ink-faint);border-style:dashed}
+  .ev-main{min-width:0;flex:1}
+  .ev-main h4{font-size:13.5px;font-weight:600;line-height:1.35;text-wrap:balance}
+  .ev-sub{display:flex;align-items:center;gap:12px;margin-top:5px;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);flex-wrap:wrap}
+  .ev-sub .dot{width:7px;height:7px}
+  .ev-sub .venue{color:var(--ink-faint)}
+  .evpill{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:4px 11px;border-radius:20px;border:1px solid var(--border);flex:none;transition:transform .12s}
+  .evpill:hover{transform:translateY(-1px)}
+  .evpill.idea{color:var(--ink-faint);background:var(--surface-2)}
+  .evpill.confirmed{color:var(--accent);background:var(--accent-wash);border-color:transparent}
+  .evpill.promoted{color:var(--warn);background:var(--warn-wash);border-color:transparent}
+  .evpill.done{color:var(--good);background:var(--good-wash);border-color:transparent}
+  .ev-del{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;color:var(--ink-faint);flex:none;transition:all .15s}
+  .ev-del:hover{color:var(--crit);background:var(--crit-wash)}
+  .ev-del svg{width:14px;height:14px;stroke-width:2}
+  .ev-empty{font-size:13px;color:var(--ink-faint);padding:26px 0;text-align:center}
+  .ev-notes-in{font-family:var(--sans);font-size:13px;color:var(--ink);border:1px solid var(--border);border-radius:7px;background:var(--surface);padding:8px 9px;width:100%;outline:none;resize:vertical;min-height:74px;transition:border-color .15s}
+  .ev-notes-in:focus{border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -762,6 +901,7 @@ const PAGE = `<!DOCTYPE html>
       <button class="nav active" data-view="board"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="11" rx="1.5"/></svg> Board <span class="count tnum" id="navBoardCount"></span></button>
       <button class="nav" data-view="mine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> My Tasks <span class="count tnum" id="navMineCount"></span></button>
       <button class="nav" data-view="calendar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg> Calendar</button>
+      <button class="nav" data-view="events"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2M13 11v2M13 17v2"/></svg> Events <span class="count tnum" id="navEventsCount"></span></button>
       <button class="nav" data-view="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 9l-5 5-3-3-4 4"/></svg> Reports</button>
     </div>
     <div class="navsec">
@@ -819,6 +959,15 @@ const PAGE = `<!DOCTYPE html>
       <section class="view" id="view-calendar">
         <div class="vhead"><h2>This week</h2><p id="calSub">Loading…</p></div>
         <div class="cal" id="calView"></div>
+      </section>
+
+      <!-- EVENTS -->
+      <section class="view" id="view-events">
+        <div class="ev-head">
+          <div class="vhead"><h2>Events</h2><p>Every brand, months out &mdash; not just this week</p></div>
+          <button class="btn-primary" id="newEvent" style="margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>New event</button>
+        </div>
+        <div id="eventsView"></div>
       </section>
 
       <!-- REPORTS -->
@@ -903,6 +1052,7 @@ async function load(){
   S.comments={};(d.commentCounts||[]).forEach(c=>S.comments[c.task_id]=c.n);
   renderAll();
  }catch(e){/* keep last good render */}
+ loadEvents();
 }
 
 /* ---------- helpers ---------- */
@@ -985,7 +1135,7 @@ function renderSidebar(){
 }
 function renderTopbar(){
  const wl=S.week?\`Wk.\${weekNum()} — \${weekShort()}\`:"Loading…";
- const titles={board:["Team Board",\`\${wl} — \${openTasks().length} active\`],mine:["My Tasks",\`\${me||"You"} — \${wl}\`],calendar:["Calendar",wl],reports:["Reports",\`\${wl} — team analytics\`]};
+ const titles={board:["Team Board",\`\${wl} — \${openTasks().length} active\`],mine:["My Tasks",\`\${me||"You"} — \${wl}\`],calendar:["Calendar",wl],events:["Events","Every brand, months out — not just this week"],reports:["Reports",\`\${wl} — team analytics\`]};
  document.getElementById("vTitle").textContent=titles[view][0];
  document.getElementById("vSub").textContent=titles[view][1];
  document.getElementById("newWeek").classList.toggle("hidden",me!=="Carlos");
@@ -1070,7 +1220,7 @@ function renderReports(){
 function renderAll(){
  renderSidebar();renderTopbar();renderStats();renderBoard();
  renderList(document.getElementById("listView"),S.tasks);
- renderMine();renderCalendar();renderReports();
+ renderMine();renderCalendar();renderReports();renderEvents();
  document.getElementById("clearFilter").classList.toggle("hidden",!(fWho||fPrio!=="all"||qtext));
  document.querySelectorAll("#avstack .avatar").forEach(a=>a.classList.toggle("dim",!!(fWho&&a.dataset.who!==fWho)));
 }
@@ -1245,6 +1395,127 @@ function openCreate(){
  title.addEventListener("keydown",e=>{if(e.key==="Enter")add.onclick();});
 }
 
+/* ---------- events ---------- */
+let EV=[];
+const EV_STATUSES=["idea","confirmed","promoted","done"];
+const todayISO=()=>{const n=new Date();return n.getFullYear()+"-"+String(n.getMonth()+1).padStart(2,"0")+"-"+String(n.getDate()).padStart(2,"0");};
+const evPast=ev=>{const d=ev.date_end||ev.date_start;return !!d&&d<todayISO();};
+const evUpcoming=ev=>ev.status!=="done"&&(!ev.date_start||(ev.date_end||ev.date_start)>=todayISO());
+function evBadge(ev){
+ if(!ev.date_start)return "TBD";
+ const s=new Date(ev.date_start+"T12:00:00");
+ const sm=s.toLocaleDateString("en-US",{month:"short"}).toUpperCase();
+ if(ev.date_end&&ev.date_end!==ev.date_start){
+  const e=new Date(ev.date_end+"T12:00:00");
+  const em=e.toLocaleDateString("en-US",{month:"short"}).toUpperCase();
+  return sm+" "+s.getDate()+"–"+(em===sm?"":em+" ")+e.getDate();
+ }
+ return sm+" "+s.getDate();
+}
+async function loadEvents(){
+ try{const d=await api("/api/events");EV=d.events||[];renderEvents();}catch(e){}
+}
+function evRow(ev){
+ const ini=INITIALS[ev.owner];
+ return \`<div class="evrow \${evPast(ev)?"past":""}" data-evid="\${esc(ev.id)}">
+  <div class="ev-date \${ev.date_start?"":"tbd"}">\${esc(evBadge(ev))}</div>
+  <div class="ev-main"><h4>\${esc(ev.title)}</h4>
+   <div class="ev-sub"><span style="display:inline-flex;align-items:center;gap:6px"><span class="dot" style="background:\${brandColor(ev.brand)}"></span>\${esc(ev.brand||"General")}</span>\${ev.venue?\`<span class="venue">\${esc(ev.venue)}</span>\`:""}\${ev.notes?\`<span class="venue" title="\${esc(ev.notes)}">&#9998; notes</span>\`:""}</div></div>
+  \${ini?av(ini,"sm"):""}
+  <button class="evpill \${esc(ev.status)}" data-evcycle="\${esc(ev.id)}" title="Click to advance status">\${esc(ev.status)}</button>
+  \${me==="Carlos"?\`<button class="ev-del" data-evdel="\${esc(ev.id)}" aria-label="Delete event">\${ic.x}</button>\`:""}
+ </div>\`;
+}
+function renderEvents(){
+ document.getElementById("navEventsCount").textContent=EV.filter(evUpcoming).length;
+ const el=document.getElementById("eventsView");
+ if(!EV.length){el.innerHTML='<div class="ev-empty">No events yet — add the first one.</div>';return}
+ const groups=[],idx={};
+ EV.forEach(ev=>{
+  const key=ev.date_start?ev.date_start.slice(0,7):"tbd";
+  if(idx[key]===undefined){idx[key]=groups.length;groups.push({key,items:[]});}
+  groups[idx[key]].items.push(ev);
+ });
+ groups.sort((a,b)=>a.key==="tbd"?-1:b.key==="tbd"?1:a.key<b.key?-1:1);
+ el.innerHTML=groups.map(g=>{
+  const label=g.key==="tbd"?"Date TBD":new Date(g.key+"-15T12:00:00").toLocaleDateString("en-US",{month:"long",year:"numeric"});
+  return \`<div class="ev-month">\${label}<span class="n tnum">\${g.items.length}</span></div>\`+g.items.map(evRow).join("");
+ }).join("");
+}
+document.getElementById("eventsView").addEventListener("click",async e=>{
+ const cyc=e.target.closest("[data-evcycle]");
+ if(cyc){
+  const ev=EV.find(x=>x.id===cyc.dataset.evcycle);if(!ev)return;
+  const next=EV_STATUSES[(EV_STATUSES.indexOf(ev.status)+1)%EV_STATUSES.length];
+  ev.status=next;renderEvents(); // optimistic
+  try{await post("/api/events/"+encodeURIComponent(ev.id),{status:next,by:me});showToast("Event marked "+next);}
+  catch(err){showToast(err.message);loadEvents();}
+  return;
+ }
+ const del=e.target.closest("[data-evdel]");
+ if(del&&me==="Carlos"){
+  if(!confirm("Delete this event?"))return;
+  try{await post("/api/events/"+encodeURIComponent(del.dataset.evdel)+"/delete",{by:me});await loadEvents();showToast("Event deleted");}
+  catch(err){showToast(err.message);}
+ }
+});
+function openCreateEvent(){
+ openTaskId=null;
+ drawer.innerHTML=\`
+  <div class="tv-head">
+   <div class="tv-crumb"><b>Events</b><span class="sep">&rsaquo;</span>New event</div>
+   <button class="dr-close" id="drClose" aria-label="Close">\${ic.x}</button>
+  </div>
+  <div class="tv-body">
+   <div class="tv-main">
+    <input class="biginput" id="neTitle" placeholder="What&rsquo;s the event?" maxlength="200">
+    <div>
+     <div class="dsec-t"><span>Notes</span></div>
+     <textarea class="ev-notes-in" id="neNotes" maxlength="500" placeholder="What to lock, who owns the checklist, links&hellip;"></textarea>
+    </div>
+   </div>
+   <div class="tv-rail">
+    <div class="rail-grp"><span class="rail-k">Brand</span>
+     <input class="propsel" id="neBrand" placeholder="AUTEUR, Jurassic Magic&hellip;" maxlength="60"></div>
+    <div class="rail-grp"><span class="rail-k">Start date</span>
+     <input class="propsel" id="neStart" type="date"></div>
+    <div class="rail-grp"><span class="rail-k">End date &mdash; optional</span>
+     <input class="propsel" id="neEnd" type="date"></div>
+    <div class="rail-grp"><span class="rail-k">Venue</span>
+     <input class="propsel" id="neVenue" placeholder="JM1, JM2, TBD&hellip;" maxlength="120"></div>
+    <div class="rail-grp"><span class="rail-k">Owner</span>
+     <select class="propsel" id="neOwner"><option value="">Unassigned</option>\${Object.keys(PEOPLE).map(k=>\`<option value="\${PEOPLE[k].key}" \${me===PEOPLE[k].name?"selected":""}>\${PEOPLE[k].name}</option>\`).join("")}</select></div>
+    <div class="rail-div"></div>
+    <div class="tv-actions">
+     <button class="btn-primary full" id="neAdd">\${ic.plus}Add event</button>
+     <button class="btn-ghost full" id="neCancel">Cancel</button>
+    </div>
+   </div>
+  </div>\`;
+ drawer.classList.add("open");drawer.setAttribute("aria-hidden","false");scrim.classList.add("open");
+ document.getElementById("drClose").onclick=closeDrawer;
+ document.getElementById("neCancel").onclick=closeDrawer;
+ const title=document.getElementById("neTitle");title.focus();
+ const add=document.getElementById("neAdd");
+ add.onclick=async()=>{
+  const v=title.value.trim();if(!v||add.disabled)return;
+  add.disabled=true;add.innerHTML=ic.plus+"Adding…";
+  try{
+   await post("/api/events",{title:v,brand:document.getElementById("neBrand").value.trim(),
+    date_start:document.getElementById("neStart").value||null,
+    date_end:document.getElementById("neEnd").value||null,
+    venue:document.getElementById("neVenue").value.trim(),
+    owner:document.getElementById("neOwner").value,
+    notes:document.getElementById("neNotes").value.trim(),by:me});
+   await loadEvents();
+   closeDrawer();route("events");
+   showToast("Event added");
+  }catch(e){add.disabled=false;add.innerHTML=ic.plus+"Add event";showToast(e.message);}
+ };
+ title.addEventListener("keydown",e=>{if(e.key==="Enter")add.onclick();});
+}
+document.getElementById("newEvent").addEventListener("click",openCreateEvent);
+
 /* ---------- routing / chrome ---------- */
 function route(v){
  view=v;
@@ -1252,6 +1523,7 @@ function route(v){
  document.querySelectorAll(".view").forEach(x=>x.classList.toggle("active",x.id==="view-"+v));
  document.getElementById("viewToggle").style.display=(v==="board")?"":"none";
  document.getElementById("filterbar").style.display=(v==="board"||v==="mine")?"":"none";
+ if(v==="events")loadEvents();
  renderTopbar();
 }
 document.querySelectorAll("#mainNav .nav").forEach(n=>n.addEventListener("click",()=>route(n.dataset.view)));
