@@ -448,6 +448,7 @@ const PAGE = `<!DOCTYPE html>
     font-size:12.5px;font-weight:500;width:100%;text-align:left;transition:background .15s;opacity:.9}
   .brandrow:hover{background:rgba(255,255,255,.06);opacity:1}
   .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .bicon{flex:none;display:inline-block;vertical-align:-3px}
   .brandrow .count{margin-left:auto;font-size:11px;color:var(--on-dark-soft)}
 
   .side-foot{margin-top:auto;display:flex;align-items:center;gap:11px;padding:12px 8px 4px;
@@ -1047,6 +1048,33 @@ const codeMap={"AUTEUR":"AUT","Coffee Machine Depot":"CMD","CMD":"CMD","MarkiBar
 const taskCode=t=>((codeMap[t.brand]||(t.brand||"GEN").slice(0,3).toUpperCase())+"·"+String(t.id).slice(0,3).toUpperCase());
 const DAY_OFFSET={Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Sun:6};
 const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+function brandIcon(b,size){
+ const s=size||15;
+ const raw=(b==null?"":String(b)).trim(),k=raw.toLowerCase();
+ const bg=raw?brandColor(b):"#969188";
+ const G={
+  bird:'<path d="M3 12c3-6 15-6 18 0-3 6-15 6-18 0Z"/><circle cx="12" cy="12" r="2.4" fill="#fff" stroke="none"/>',
+  aut:'<path d="M5.5 19.5 12 4.5l6.5 15"/><path d="M8 14h8"/>',
+  cup:'<path d="M5 6h10v6a5 5 0 0 1-10 0V6Z"/><path d="M15 8h2.5a2.5 2.5 0 0 1 0 5H15"/><path d="M3.5 20.5h15"/>',
+  bolt:'<path d="M13.5 2 5 13.5h5.5L9.5 22 19 10.5h-5.5L13.5 2Z" fill="#fff" stroke="none"/>',
+  steam1:'<path d="M6 10.5h12v4.5a6 6 0 0 1-12 0v-4.5Z"/><path d="M12 3c-1.6 1.4 1.6 2.6 0 4.5"/>',
+  steam2:'<path d="M6 10.5h12v4.5a6 6 0 0 1-12 0v-4.5Z"/><path d="M9.5 3c-1.6 1.4 1.6 2.6 0 4.5"/><path d="M14.5 3c-1.6 1.4 1.6 2.6 0 4.5"/>',
+  hanger:'<path d="M14 3.6a2 2 0 1 0-2 2.6v2.3"/><path d="M3.8 15.5 12 9l8.2 6.5H3.8Z"/>',
+  grinder:'<path d="M6.5 4h11l-2.2 5.5h-6.6L6.5 4Z"/><rect x="8" y="12" width="8" height="8.5" rx="1.5"/>',
+  stanza:'<path d="M4.5 7h15M4.5 12h15M4.5 17h9"/>',
+  lyn:'<path d="M10 4c3.5 0 3.5 5.5.8 9.8-1.8 3-.6 6.2 2.4 6.2 1.7 0 2.8-1 3.3-2.3"/>',
+  shoe:'<path d="M6.5 20.5v-8a5.5 5.5 0 0 1 11 0v8"/><path d="M4.5 17.5h3.2M16.3 17.5h3.2"/>',
+  gear:'<circle cx="12" cy="12" r="4.5"/><path d="M12 3v3.5M12 17.5V21M3 12h3.5M17.5 12H21"/>',
+  dot:'<circle cx="12" cy="12" r="2.6" fill="#fff" stroke="none"/>'
+ };
+ const M={"9 birds":"bird","9 birds creative":"bird","auteur":"aut","cmd":"cup","coffee machine depot":"cup","jurassic magic":"bolt","convi":"steam1","jm/convi":"steam2","jm · convi":"steam2","cout de la liberte":"hanger","cdll":"hanger","markibar":"grinder","markibar usa":"grinder","stanza":"stanza","lynora's":"lyn","lynoras":"lyn","bronco":"shoe","admin":"gear"};
+ let inner;
+ if(!raw)inner=G.dot;
+ else if(M[k])inner=G[M[k]];
+ else inner='<text x="12" y="12.5" text-anchor="middle" dominant-baseline="central" font-family="ui-sans-serif,system-ui,sans-serif" font-weight="700" font-size="13" fill="#fff" stroke="none">'+esc(raw[0].toUpperCase())+'</text>';
+ return '<svg class="bicon" width="'+s+'" height="'+s+'" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6.5" fill="'+bg+'"/><g transform="translate(12 12) scale(.68) translate(-12 -12)" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">'+inner+'</g></svg>';
+}
+
 
 const ic={
  cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>',
@@ -1127,7 +1155,7 @@ function taskCard(t){
   prog=\`<div class="progress"><div class="ptop"><span>Checklist</span><span class="tnum">\${ck.done}/\${ck.total}</span></div><div class="bar"><i style="width:\${pct}%;background:\${barC}"></i></div></div>\`;
  }
  return \`<article class="card p-\${prio} \${t.status==="done"?"done":""} \${visible(t)?"":"fade"}" draggable="true" data-id="\${esc(t.id)}">
-  <div class="card-top"><span class="code">\${esc(taskCode(t))}</span><span class="tag"><span class="dot" style="background:\${brandColor(t.brand)}"></span>\${esc(t.brand||"General")}</span><span class="prio \${prio}">\${prio}</span></div>
+  <div class="card-top"><span class="code">\${esc(taskCode(t))}</span><span class="tag">\${brandIcon(t.brand)}\${esc(t.brand||"General")}</span><span class="prio \${prio}">\${prio}</span></div>
   <h4>\${esc(t.title)}</h4>
   \${prog}
   <div class="card-foot">\${av(pIni(t))}<span class="due \${t.status==="done"?"":dueClass(due.state)}">\${ic.cal}\${t.status==="done"?"Done":due.label}</span>
@@ -1138,7 +1166,7 @@ function listRow(t){
  const ck=S.checks[t.id],due=dueInfo(t.day),prio=t.prio||"medium";
  return \`<div class="lrow \${t.status==="done"?"done":""} \${visible(t)?"":"fade"}" data-id="\${esc(t.id)}">
   <div class="lcheck">\${t.status==="done"?ic.check:""}</div>
-  <div class="ltitle"><span class="dot" style="background:\${brandColor(t.brand)};width:8px;height:8px;border-radius:50%"></span><span class="tt">\${esc(t.title)}</span>\${t.carry>0?\`<span class="metaic carrytag">↩ ×\${t.carry}</span>\`:""}</div>
+  <div class="ltitle">\${brandIcon(t.brand,14)}<span class="tt">\${esc(t.title)}</span>\${t.carry>0?\`<span class="metaic carrytag">↩ ×\${t.carry}</span>\`:""}</div>
   <div class="lmeta">\${av(pIni(t),"sm")} \${PEOPLE[pIni(t)]?PEOPLE[pIni(t)].name:""}</div>
   <div class="lmeta"><span class="prio \${prio}">\${prio}</span></div>
   <div class="lmeta" style="\${due.state==="over"&&t.status!=="done"?"color:var(--crit)":due.state==="today"?"color:var(--warn)":""}">\${due.label}</div>
@@ -1153,7 +1181,7 @@ function renderSidebar(){
  const m=new Map();
  open.forEach(t=>{if(t.brand)m.set(t.brand,(m.get(t.brand)||0)+1)});
  document.getElementById("brandList").innerHTML=[...m.entries()].sort((a,b)=>b[1]-a[1]).map(([name,n])=>
-  \`<button class="brandrow" data-brand="\${esc(name)}"><span class="dot" style="background:\${brandColor(name)}"></span> \${esc(name)} <span class="count tnum">\${n}</span></button>\`).join("");
+  \`<button class="brandrow" data-brand="\${esc(name)}">\${brandIcon(name)} \${esc(name)} <span class="count tnum">\${n}</span></button>\`).join("");
  const ini=Object.keys(PEOPLE).find(k=>PEOPLE[k].name===me);
  document.getElementById("meFoot").innerHTML=\`<div class="avatar lg" style="background:\${ini?PEOPLE[ini].color:"#2E6EDD"}">\${ini||"?"}</div>
   <div class="meta"><b>\${esc(me||"Pick your name")}</b><br><span>\${me==="Carlos"?"Marketing Director":"9 Birds Creative"}</span></div>\`;
@@ -1224,7 +1252,7 @@ function renderReports(){
  const brands=[...byBrand.entries()].sort((a,b)=>b[1]-a[1]);
  const bMax=Math.max(1,...brands.map(b=>b[1]));
  document.getElementById("brandBars").innerHTML=brands.map(([name,n])=>
-  \`<div class="hbar"><div class="hlabel"><span class="dot" style="background:\${brandColor(name)}"></span>\${esc(name)}</div><div class="htrack"><i style="width:\${n/bMax*100}%;background:\${brandColor(name)}"></i></div><div class="hval tnum">\${n}</div></div>\`).join("")||'<p class="psub">No open tasks.</p>';
+  \`<div class="hbar"><div class="hlabel">\${brandIcon(name,14)}\${esc(name)}</div><div class="htrack"><i style="width:\${n/bMax*100}%;background:\${brandColor(name)}"></i></div><div class="hval tnum">\${n}</div></div>\`).join("")||'<p class="psub">No open tasks.</p>';
  const byPerson={};open.forEach(t=>byPerson[t.person]=(byPerson[t.person]||0)+1);
  const pMax=Math.max(1,...Object.values(byPerson).concat([0]));
  document.getElementById("capBars").innerHTML=Object.keys(PEOPLE).map(k=>{
@@ -1286,7 +1314,7 @@ async function openDrawer(id){
  const meIni=Object.keys(PEOPLE).find(k=>PEOPLE[k].name===me)||"CN";
  drawer.innerHTML=\`
   <div class="tv-head">
-   <div class="tv-crumb"><b>Board</b><span class="sep">›</span><span class="dot" style="background:\${brandColor(t.brand)}"></span>\${esc(t.brand||"General")}</div>
+   <div class="tv-crumb"><b>Board</b><span class="sep">›</span>\${brandIcon(t.brand,14)}\${esc(t.brand||"General")}</div>
    <button class="dr-close" id="drClose" aria-label="Close">\${ic.x}</button>
   </div>
   <div class="tv-body">
@@ -1320,7 +1348,7 @@ async function openDrawer(id){
      <select class="propsel" id="selDay">\${["Any","Mon","Tue","Wed","Thu","Fri"].map(d=>\`<option value="\${d}" \${(t.day||"Any")===d?"selected":""}>\${d==="Any"?"Anytime this week":d+" · "+dueInfo(d).label}</option>\`).join("")}</select>
      \${due.state==="over"&&t.status!=="done"?'<span style="color:var(--crit);font-size:11px;font-weight:700">overdue</span>':""}</div>
     <div class="rail-div"></div>
-    <div class="rail-grp"><span class="rail-k">Brand</span><span class="rail-v"><span class="dot" style="background:\${brandColor(t.brand)}"></span>\${esc(t.brand||"General")}</span></div>
+    <div class="rail-grp"><span class="rail-k">Brand</span><span class="rail-v">\${brandIcon(t.brand,14)}\${esc(t.brand||"General")}</span></div>
     \${t.carry>0?\`<div class="rail-grp"><span class="rail-k">History</span><span class="rail-v carrytag">↩ carried over ×\${t.carry}</span></div>\`:""}
     \${t.updated_by?\`<div class="rail-grp"><span class="rail-k">Last touched</span><span class="rail-v">\${esc(t.updated_by)}</span></div>\`:""}
     <div class="rail-div"></div>
@@ -1445,7 +1473,7 @@ function evRow(ev){
  return \`<div class="evrow \${evPast(ev)?"past":""}" data-evid="\${esc(ev.id)}">
   <div class="ev-date \${ev.date_start?"":"tbd"}">\${esc(evBadge(ev))}</div>
   <div class="ev-main"><h4>\${esc(ev.title)}</h4>
-   <div class="ev-sub"><span style="display:inline-flex;align-items:center;gap:6px"><span class="dot" style="background:\${brandColor(ev.brand)}"></span>\${esc(ev.brand||"General")}</span>\${ev.venue?\`<span class="venue">\${esc(ev.venue)}</span>\`:""}\${ev.notes?\`<span class="venue" title="\${esc(ev.notes)}">&#9998; notes</span>\`:""}</div></div>
+   <div class="ev-sub"><span style="display:inline-flex;align-items:center;gap:6px">\${brandIcon(ev.brand,14)}\${esc(ev.brand||"General")}</span>\${ev.venue?\`<span class="venue">\${esc(ev.venue)}</span>\`:""}\${ev.notes?\`<span class="venue" title="\${esc(ev.notes)}">&#9998; notes</span>\`:""}</div></div>
   \${ini?av(ini,"sm"):""}
   <button class="evpill \${esc(ev.status)}" data-evcycle="\${esc(ev.id)}" title="Click to advance status">\${esc(ev.status)}</button>
   \${me==="Carlos"?\`<button class="ev-del" data-evdel="\${esc(ev.id)}" aria-label="Delete event">\${ic.x}</button>\`:""}
