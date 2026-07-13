@@ -230,8 +230,32 @@ async function updateEvent(db, id, body) {
   return json({ ok: true });
 }
 
+const PERSON_NAMES = { brandon: "Brandon", angela: "Angela", riley: "Riley", jess: "Jess", carlos: "Carlos" };
+
+// Best-effort Slack notification for new comments. Only runs when the
+// SLACK_WEBHOOK_URL secret is bound; failures are swallowed so they can
+// never affect the API response.
+async function notifySlack(db, webhookUrl, taskId, author, text) {
+  try {
+    const task = await db.prepare("SELECT title, person, brand FROM tasks WHERE id=?1").bind(taskId).first();
+    if (!task) return;
+    const name = PERSON_NAMES[task.person] || task.person;
+    const msg =
+      `\u{1F4AC} ${author} commented on "${task.title}" (${name}'s task, ${task.brand}):\n` +
+      `> ${text.slice(0, 300)}\n` +
+      "Board: https://ninebirds-board.carlos-nunez.workers.dev";
+    await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: msg }),
+    });
+  } catch {
+    // ignore — Slack is fire-and-forget
+  }
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const method = request.method;
@@ -318,6 +342,7 @@ export default {
           .prepare("INSERT INTO comments (id, task_id, author, body) VALUES (?1,?2,?3,?4)")
           .bind(id, taskId, author, text)
           .run();
+        if (env.SLACK_WEBHOOK_URL) ctx.waitUntil(notifySlack(db, env.SLACK_WEBHOOK_URL, taskId, author, text));
         return json({ ok: true, id });
       }
 

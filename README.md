@@ -49,3 +49,19 @@ https://ninebirds-board.<your-subdomain>.workers.dev
 ```
 
 That URL is all the team needs — pick your name once and go. No accounts, no installs.
+
+## Slack comment notifications (one-time setup)
+
+New comments on the board can post to Slack. Without the secret below the feature is silently off — nothing else changes.
+
+1. In Slack, create an Incoming Webhook for **#9-birds-team**: [api.slack.com/apps](https://api.slack.com/apps) → **Create App** → **Incoming Webhooks** (toggle on) → **Add New Webhook to Workspace** → pick **#9-birds-team**, then copy the webhook URL.
+2. In this GitHub repo add it as an Actions secret named `SLACK_WEBHOOK_URL`: **Settings → Secrets and variables → Actions** → **New repository secret**.
+3. Let the deploy workflow push it to the Worker on every deploy: in `.github/workflows/deploy.yml`, add `SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}` to the job's `env:` block, then add this step after **Deploy Worker**:
+
+   ```yaml
+   - name: Push Slack webhook secret to the Worker
+     if: env.SLACK_WEBHOOK_URL != ''
+     run: echo "$SLACK_WEBHOOK_URL" | wrangler secret put SLACK_WEBHOOK_URL
+   ```
+
+   After that, the secret reaches the Worker automatically on the next deploy.
