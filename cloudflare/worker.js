@@ -43,6 +43,20 @@ async function readBody(request) {
   }
 }
 
+// Lazy migration: production DBs created before the helper column existed get it
+// on first use. Runs at most once per isolate; a duplicate-column error simply
+// means the column is already there.
+let helperColumnEnsured = false;
+async function ensureHelperColumn(db) {
+  if (helperColumnEnsured) return;
+  try {
+    await db.prepare("ALTER TABLE tasks ADD COLUMN helper TEXT DEFAULT ''").run();
+  } catch (e) {
+    // "duplicate column name: helper" — already migrated; nothing to do.
+  }
+  helperColumnEnsured = true;
+}
+
 async function currentWeek(db) {
   const row = await db.prepare("SELECT value FROM meta WHERE key='current_week'").first();
   return row ? row.value : "";
@@ -75,14 +89,20 @@ async function createTask(db, body) {
   const brand = typeof body.brand === "string" ? body.brand.trim().slice(0, 60) : "";
   const day = DAYS.includes(body.day) ? body.day : "Any";
   const prio = PRIOS.includes(body.prio) ? body.prio : "medium";
+  let helper = "";
+  if (body.helper !== undefined && body.helper !== "") {
+    if (!PEOPLE.includes(body.helper)) return bad("helper must be one of: " + PEOPLE.join(", ") + " — or empty");
+    if (body.helper === person) return bad("helper must differ from owner");
+    helper = body.helper;
+  }
   const week = await currentWeek(db);
   if (!week) return bad("No active week", 409);
   const id = newId();
   await db
     .prepare(
-      "INSERT INTO tasks (id, week, person, title, brand, day, status, prio, carry, sort, updated_by) VALUES (?1,?2,?3,?4,?5,?6,'todo',?7,0,(SELECT COALESCE(MAX(sort),0)+1 FROM tasks WHERE week=?2),?8)",
+      "INSERT INTO tasks (id, week, person, title, brand, day, status, prio, carry, sort, updated_by, helper) VALUES (?1,?2,?3,?4,?5,?6,'todo',?7,0,(SELECT COALESCE(MAX(sort),0)+1 FROM tasks WHERE week=?2),?8,?9)",
     )
-    .bind(id, week, person, title, brand, day, prio, by(body.by))
+    .bind(id, week, person, title, brand, day, prio, by(body.by), helper)
     .run();
   return json({ ok: true, id });
 }
@@ -97,6 +117,22 @@ async function updateTask(db, id, body) {
   if (body.person !== undefined) {
     if (!PEOPLE.includes(body.person)) return bad("person must be one of: " + PEOPLE.join(", "));
     sets.push("person=?" + (binds.push(body.person), binds.length));
+    if (body.helper === undefined) {
+      // The new owner absorbs their own helper slot.
+      sets.push("helper=CASE WHEN helper=?" + (binds.push(body.person), binds.length) + " THEN '' ELSE helper END");
+    }
+  }
+  if (body.helper !== undefined) {
+    const helper = body.helper === "" ? "" : PEOPLE.includes(body.helper) ? body.helper : null;
+    if (helper === null) return bad("helper must be one of: " + PEOPLE.join(", ") + " — or empty");
+    if (helper) {
+      const owner =
+        body.person !== undefined
+          ? body.person
+          : ((await db.prepare("SELECT person FROM tasks WHERE id=?1").bind(id).first()) || {}).person;
+      if (helper === owner) return bad("helper must differ from owner");
+    }
+    sets.push("helper=?" + (binds.push(helper), binds.length));
   }
   if (body.prio !== undefined) {
     if (!PRIOS.includes(body.prio)) return bad("prio must be one of: " + PRIOS.join(", "));
@@ -106,7 +142,7 @@ async function updateTask(db, id, body) {
     if (!DAYS.includes(body.day)) return bad("day must be one of: " + DAYS.join(", "));
     sets.push("day=?" + (binds.push(body.day), binds.length));
   }
-  if (!sets.length) return bad("Nothing to update — send status, person, prio and/or day");
+  if (!sets.length) return bad("Nothing to update — send status, person, helper, prio and/or day");
   sets.push("updated_by=?" + (binds.push(by(body.by)), binds.length));
   sets.push("updated_at=datetime('now')");
   binds.push(id);
@@ -133,9 +169,9 @@ async function rollWeek(db) {
   const stmts = unfinished.map((t) =>
     db
       .prepare(
-        "INSERT INTO tasks (id, week, person, title, brand, day, status, prio, carry, sort, updated_by) VALUES (?1,?2,?3,?4,?5,?6,'todo',?7,?8,?9,'Carlos')",
+        "INSERT INTO tasks (id, week, person, title, brand, day, status, prio, carry, sort, updated_by, helper) VALUES (?1,?2,?3,?4,?5,?6,'todo',?7,?8,?9,'Carlos',?10)",
       )
-      .bind(newId(), next, t.person, t.title, t.brand, t.day, t.prio || "medium", (t.carry || 0) + 1, t.sort),
+      .bind(newId(), next, t.person, t.title, t.brand, t.day, t.prio || "medium", (t.carry || 0) + 1, t.sort, t.helper || ""),
   );
   stmts.push(db.prepare("UPDATE meta SET value=?1 WHERE key='current_week'").bind(next));
   await db.batch(stmts);
@@ -270,6 +306,7 @@ export default {
 
       if (!path.startsWith("/api")) return bad("Not found", 404);
       if (!db) return bad("Database not provisioned", 503);
+      await ensureHelperColumn(db);
 
       if (path === "/api/board" && method === "GET") return json(await getBoard(db));
 
@@ -580,6 +617,11 @@ const PAGE = `<!DOCTYPE html>
     font-size:10.5px;font-weight:700;flex:none}
   .avatar.sm{width:22px;height:22px;font-size:10px}
   .avatar.lg{width:32px;height:32px;font-size:12px}
+  .avpair{display:inline-flex;align-items:center;flex:none}
+  .avpair .avatar.back{border:2px solid var(--surface);margin-right:-9px}
+  .avpair .avatar.front{border:2px solid var(--surface);position:relative;z-index:1}
+  .helpingtag{font-size:11px;font-weight:600;color:var(--ink-faint);background:var(--surface-2);
+    border:1px solid var(--border);border-radius:20px;padding:1px 8px;flex:none}
   .col.done-col .card{background:var(--surface-2)}
 
   /* ---------- list view ---------- */
@@ -1121,8 +1163,10 @@ function dueInfo(day){
 const dueClass=s=>s==="over"?"over":s==="today"?"today":"";
 const av=(w,cls)=>PEOPLE[w]?\`<div class="avatar \${cls||""}" style="background:\${PEOPLE[w].color}" title="\${PEOPLE[w].name}">\${w}</div>\`:"";
 const pIni=t=>INITIALS[t.person]||"CN";
+const hIni=t=>t.helper&&INITIALS[t.helper]&&PEOPLE[INITIALS[t.helper]]?INITIALS[t.helper]:null;
+const avPair=(t,cls)=>{const h=hIni(t);if(!h)return av(pIni(t),cls);const o=pIni(t);return \`<div class="avpair" title="\${PEOPLE[o].name} + \${PEOPLE[h].name}">\${av(h,(cls||"")+" back")}\${av(o,(cls||"")+" front")}</div>\`;};
 function visible(t){
- const okW=!fWho||pIni(t)===fWho;
+ const okW=!fWho||pIni(t)===fWho||hIni(t)===fWho;
  const okP=fPrio==="all"||(t.prio||"medium")===fPrio;
  const okQ=!qtext||((t.title+" "+(t.brand||"")+" "+(PEOPLE[pIni(t)]?PEOPLE[pIni(t)].name:"")).toLowerCase().includes(qtext.toLowerCase()));
  return okW&&okP&&okQ;
@@ -1139,7 +1183,8 @@ function weekShort(){
  return String(d.getMonth()+1).padStart(2,"0")+"."+String(d.getDate()).padStart(2,"0")+"."+String(d.getFullYear()).slice(2);
 }
 const openTasks=()=>S.tasks.filter(t=>t.status!=="done");
-const mineTasks=()=>S.tasks.filter(t=>PEOPLE[pIni(t)]&&PEOPLE[pIni(t)].name===me);
+const meKey=()=>{const k=Object.keys(PEOPLE).find(x=>PEOPLE[x].name===me);return k?PEOPLE[k].key:null;};
+const mineTasks=()=>{const mk=meKey();return S.tasks.filter(t=>!!mk&&(t.person===mk||t.helper===mk));};
 
 /* ---------- toast ---------- */
 const toast=document.getElementById("toast");let tt;
@@ -1158,7 +1203,7 @@ function taskCard(t){
   <div class="card-top"><span class="code">\${esc(taskCode(t))}</span><span class="tag">\${brandIcon(t.brand)}\${esc(t.brand||"General")}</span><span class="prio \${prio}">\${prio}</span></div>
   <h4>\${esc(t.title)}</h4>
   \${prog}
-  <div class="card-foot">\${av(pIni(t))}<span class="due \${t.status==="done"?"":dueClass(due.state)}">\${ic.cal}\${t.status==="done"?"Done":due.label}</span>
+  <div class="card-foot">\${avPair(t)}<span class="due \${t.status==="done"?"":dueClass(due.state)}">\${ic.cal}\${t.status==="done"?"Done":due.label}</span>
    <div class="metas">\${cn?\`<span class="metaic">\${ic.chat}\${cn}</span>\`:""}\${t.carry>0?\`<span class="metaic carrytag">↩ ×\${t.carry}</span>\`:""}\${t.status==="done"&&t.updated_by?\`<span class="metaic">✓ \${esc(t.updated_by)}</span>\`:""}</div></div>
  </article>\`;
 }
@@ -1166,8 +1211,8 @@ function listRow(t){
  const ck=S.checks[t.id],due=dueInfo(t.day),prio=t.prio||"medium";
  return \`<div class="lrow \${t.status==="done"?"done":""} \${visible(t)?"":"fade"}" data-id="\${esc(t.id)}">
   <div class="lcheck">\${t.status==="done"?ic.check:""}</div>
-  <div class="ltitle">\${brandIcon(t.brand,14)}<span class="tt">\${esc(t.title)}</span>\${t.carry>0?\`<span class="metaic carrytag">↩ ×\${t.carry}</span>\`:""}</div>
-  <div class="lmeta">\${av(pIni(t),"sm")} \${PEOPLE[pIni(t)]?PEOPLE[pIni(t)].name:""}</div>
+  <div class="ltitle">\${brandIcon(t.brand,14)}<span class="tt">\${esc(t.title)}</span>\${t.carry>0?\`<span class="metaic carrytag">↩ ×\${t.carry}</span>\`:""}\${t.helper&&t.helper===meKey()?\`<span class="helpingtag">helping \${PEOPLE[pIni(t)]?PEOPLE[pIni(t)].name:""}</span>\`:""}</div>
+  <div class="lmeta">\${avPair(t,"sm")} \${PEOPLE[pIni(t)]?PEOPLE[pIni(t)].name:""}</div>
   <div class="lmeta"><span class="prio \${prio}">\${prio}</span></div>
   <div class="lmeta" style="\${due.state==="over"&&t.status!=="done"?"color:var(--crit)":due.state==="today"?"color:var(--warn)":""}">\${due.label}</div>
   <div class="lmeta tnum">\${ck?ck.done+"/"+ck.total:colName[t.status]}</div></div>\`;
@@ -1221,7 +1266,7 @@ function renderBoard(){
 function renderList(el,items){
  el.innerHTML=columns.map(col=>{
   const its=sortVis(items.filter(t=>t.status===col.id));if(!its.length)return"";
-  return \`<div class="lgroup-head"><span class="swatch" style="background:\${col.color}"></span><h3>\${colName[col.id]}</h3><span class="n tnum">\${its.length}</span></div>\${its.map(listRow).join("")}\`;
+  return \`<div class="lgroup-head"><span class="swatch" style="background:\${col.color}"></span><h3>\${colName[col.id]}</h3><span class="n tnum">\${its.length}</span></div>\`+its.map(listRow).join("");
  }).join("")||\`<div class="lgroup-head"><h3>Nothing here yet</h3></div>\`;
 }
 function renderMine(){
@@ -1254,10 +1299,11 @@ function renderReports(){
  document.getElementById("brandBars").innerHTML=brands.map(([name,n])=>
   \`<div class="hbar"><div class="hlabel">\${brandIcon(name,14)}\${esc(name)}</div><div class="htrack"><i style="width:\${n/bMax*100}%;background:\${brandColor(name)}"></i></div><div class="hval tnum">\${n}</div></div>\`).join("")||'<p class="psub">No open tasks.</p>';
  const byPerson={};open.forEach(t=>byPerson[t.person]=(byPerson[t.person]||0)+1);
+ const byHelping={};open.forEach(t=>{if(t.helper)byHelping[t.helper]=(byHelping[t.helper]||0)+1;});
  const pMax=Math.max(1,...Object.values(byPerson).concat([0]));
  document.getElementById("capBars").innerHTML=Object.keys(PEOPLE).map(k=>{
-  const n=byPerson[PEOPLE[k].key]||0;
-  return \`<div class="cap"><div class="who">\${av(k,"sm")}\${PEOPLE[k].name}</div><div class="ctrack"><i style="width:\${n/pMax*100}%;background:\${PEOPLE[k].color}"></i></div><div class="cn tnum">\${n} open</div></div>\`;
+  const n=byPerson[PEOPLE[k].key]||0,h=byHelping[PEOPLE[k].key]||0;
+  return \`<div class="cap"><div class="who">\${av(k,"sm")}\${PEOPLE[k].name}</div><div class="ctrack"><i style="width:\${n/pMax*100}%;background:\${PEOPLE[k].color}"></i></div><div class="cn tnum">\${n} open\${h?\` <span style="color:var(--ink-faint);font-weight:500">+\${h} helping</span>\`:""}</div></div>\`;
  }).join("");
  const tp=S.throughput;
  const tMax=Math.max(1,...tp.map(w=>w.n));
@@ -1298,10 +1344,14 @@ function closeDrawer(){drawer.classList.remove("open");drawer.setAttribute("aria
 scrim.addEventListener("click",closeDrawer);
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeDrawer();});
 
-async function saveField(id,field,value){
- const body={by:me};body[field]=value;
+async function saveFields(id,fields){
+ const body=Object.assign({by:me},fields);
  try{await post("/api/tasks/"+encodeURIComponent(id),body,"PATCH");await load();}
  catch(e){showToast(e.message);}
+}
+async function saveField(id,field,value){
+ const body={};body[field]=value;
+ return saveFields(id,body);
 }
 async function openDrawer(id){
  const t=S.tasks.find(x=>x.id===id);if(!t)return;
@@ -1342,6 +1392,8 @@ async function openDrawer(id){
      <select class="propsel" id="selStatus">\${columns.map(c=>\`<option value="\${c.id}" \${t.status===c.id?"selected":""}>\${colName[c.id]}</option>\`).join("")}</select></div>
     <div class="rail-grp"><span class="rail-k">Assignee</span>
      <select class="propsel" id="selPerson">\${Object.keys(PEOPLE).map(k=>\`<option value="\${PEOPLE[k].key}" \${t.person===PEOPLE[k].key?"selected":""}>\${PEOPLE[k].name}</option>\`).join("")}</select></div>
+    <div class="rail-grp"><span class="rail-k">Working with</span>
+     <select class="propsel" id="selHelper"><option value="" \${!t.helper?"selected":""}>None</option>\${Object.keys(PEOPLE).filter(k=>PEOPLE[k].key!==t.person).map(k=>\`<option value="\${PEOPLE[k].key}" \${t.helper===PEOPLE[k].key?"selected":""}>\${PEOPLE[k].name}</option>\`).join("")}</select></div>
     <div class="rail-grp"><span class="rail-k">Priority</span>
      <select class="propsel" id="selPrio">\${PRIOS.map(p=>\`<option value="\${p}" \${prio===p?"selected":""}>\${p}</option>\`).join("")}</select></div>
     <div class="rail-grp"><span class="rail-k">Day</span>
@@ -1363,7 +1415,8 @@ async function openDrawer(id){
  drawer.classList.add("open");drawer.setAttribute("aria-hidden","false");scrim.classList.add("open");
  document.getElementById("drClose").onclick=closeDrawer;
  document.getElementById("selStatus").onchange=e=>{saveField(t.id,"status",e.target.value);if(e.target.value==="done")showToast("Task marked complete");};
- document.getElementById("selPerson").onchange=e=>{saveField(t.id,"person",e.target.value);const p=Object.keys(PEOPLE).find(k=>PEOPLE[k].key===e.target.value);showToast("Moved to "+(p?PEOPLE[p].name:e.target.value));};
+ document.getElementById("selPerson").onchange=e=>{const f={person:e.target.value};if(t.helper===e.target.value)f.helper="";saveFields(t.id,f);const p=Object.keys(PEOPLE).find(k=>PEOPLE[k].key===e.target.value);showToast("Moved to "+(p?PEOPLE[p].name:e.target.value));};
+ document.getElementById("selHelper").onchange=e=>{saveField(t.id,"helper",e.target.value);const p=Object.keys(PEOPLE).find(k=>PEOPLE[k].key===e.target.value);showToast(p?"Now working with "+PEOPLE[p].name:"Helper cleared");};
  document.getElementById("selPrio").onchange=e=>saveField(t.id,"prio",e.target.value);
  document.getElementById("selDay").onchange=e=>saveField(t.id,"day",e.target.value);
  const done=document.getElementById("drDone");
@@ -1415,6 +1468,8 @@ function openCreate(){
    <div class="tv-rail">
     <div class="rail-grp"><span class="rail-k">Assignee</span>
      <select class="propsel" id="ntPerson">\${Object.keys(PEOPLE).map(k=>\`<option value="\${PEOPLE[k].key}" \${me===PEOPLE[k].name?"selected":""}>\${PEOPLE[k].name}</option>\`).join("")}</select></div>
+    <div class="rail-grp"><span class="rail-k">Working with</span>
+     <select class="propsel" id="ntHelper"></select></div>
     <div class="rail-grp"><span class="rail-k">Brand</span>
      <input class="propsel" id="ntBrand" placeholder="AUTEUR, CMD, MarkiBar…" maxlength="60"></div>
     <div class="rail-grp"><span class="rail-k">Day</span>
@@ -1432,12 +1487,15 @@ function openCreate(){
  document.getElementById("drClose").onclick=closeDrawer;
  document.getElementById("ntCancel").onclick=closeDrawer;
  const title=document.getElementById("ntTitle");title.focus();
+ const ntP=document.getElementById("ntPerson"),ntH=document.getElementById("ntHelper");
+ const fillHelpers=()=>{const cur=ntH.value;ntH.innerHTML='<option value="">None</option>'+Object.keys(PEOPLE).filter(k=>PEOPLE[k].key!==ntP.value).map(k=>\`<option value="\${PEOPLE[k].key}">\${PEOPLE[k].name}</option>\`).join("");ntH.value=[...ntH.options].some(o=>o.value===cur)?cur:"";};
+ fillHelpers();ntP.addEventListener("change",fillHelpers);
  const add=document.getElementById("ntAdd");
  add.onclick=async()=>{
   const v=title.value.trim();if(!v||add.disabled)return;
   add.disabled=true;add.innerHTML=ic.plus+"Adding…";
   try{
-   await post("/api/tasks",{person:document.getElementById("ntPerson").value,title:v,brand:document.getElementById("ntBrand").value.trim(),day:document.getElementById("ntDay").value,prio:document.getElementById("ntPrio").value,by:me});
+   await post("/api/tasks",{person:document.getElementById("ntPerson").value,helper:document.getElementById("ntHelper").value,title:v,brand:document.getElementById("ntBrand").value.trim(),day:document.getElementById("ntDay").value,prio:document.getElementById("ntPrio").value,by:me});
    await load(); // card appears before drawer closes
    closeDrawer();
    route("board");

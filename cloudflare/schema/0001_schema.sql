@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   carry INTEGER DEFAULT 0,
   sort INTEGER DEFAULT 0,
   updated_by TEXT DEFAULT '',
+  helper TEXT DEFAULT '',
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
