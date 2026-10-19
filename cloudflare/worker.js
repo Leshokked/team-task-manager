@@ -1203,15 +1203,12 @@ function visible(t){
  return okW&&okP&&okQ;
 }
 const sortVis=items=>items.slice().sort((a,b)=>Number(visible(b))-Number(visible(a)));
-function weekNum(){
- if(!S.week)return 0;
- const d=new Date(S.week+"T12:00:00");
- return Math.ceil(((d.getTime()-new Date(d.getFullYear(),0,1).getTime())/864e5+1)/7);
-}
-function weekShort(){
+function weekRange(){
  if(!S.week)return"…";
- const d=new Date(S.week+"T12:00:00");
- return String(d.getMonth()+1).padStart(2,"0")+"."+String(d.getDate()).padStart(2,"0")+"."+String(d.getFullYear()).slice(2);
+ const start=new Date(S.week+"T12:00:00Z"),end=new Date(start);
+ end.setUTCDate(start.getUTCDate()+6);
+ const month=d=>d.toLocaleDateString("en-US",{month:"short",timeZone:"UTC"}).toUpperCase();
+ return month(start)+" "+start.getUTCDate()+"–"+(start.getUTCMonth()===end.getUTCMonth()?"":month(end)+" ")+end.getUTCDate();
 }
 const openTasks=()=>S.tasks.filter(t=>t.status!=="done");
 const meKey=()=>{const k=Object.keys(PEOPLE).find(x=>PEOPLE[x].name===me);return k?PEOPLE[k].key:null;};
@@ -1264,7 +1261,7 @@ function renderSidebar(){
   <div class="meta"><b>\${esc(me||"Pick your name")}</b><br><span>\${me==="Carlos"?"Marketing Director":"9 Birds Creative"}</span></div>\`;
 }
 function renderTopbar(){
- const wl=S.week?\`Wk.\${weekNum()} — \${weekShort()}\`:"Loading…";
+ const wl=S.week?weekRange():"Loading…";
  const titles={board:["Team Board",\`\${wl} — \${openTasks().length} active\`],mine:["My Tasks",\`\${me||"You"} — \${wl}\`],calendar:["Calendar",wl],events:["Events","Every brand, months out — not just this week"],reports:["Reports",\`\${wl} — team analytics\`],archive:["Task Archive","Preserved history · read only"]};
  document.getElementById("vTitle").textContent=titles[view][0];
  document.getElementById("vSub").textContent=titles[view][1];
@@ -1283,7 +1280,7 @@ function renderStats(){
  const done=S.tasks.filter(t=>t.status==="done").length;
  const pct=S.tasks.length?Math.round(done/S.tasks.length*100):0;
  const nBrands=new Set(open.map(t=>t.brand).filter(Boolean)).size;
- document.getElementById("boardCoord").innerHTML=\`<span class="lead">Index</span><span class="cx">\${open.length} active · \${nBrands} brands</span><span class="cx">Wk.\${weekNum()} / \${weekShort()}</span>\`;
+ document.getElementById("boardCoord").innerHTML=\`<span class="lead">Index</span><span class="cx">\${open.length} active · \${nBrands} brands</span><span class="cx">\${weekRange()}</span>\`;
  document.getElementById("statsStrip").innerHTML=\`
   <div class="stat"><div class="k">Open this week</div><div class="v tnum">\${open.length}</div><div class="bar"><i style="width:\${100-pct}%;background:var(--accent)"></i></div></div>
   <div class="stat"><div class="k">In progress</div><div class="v neutral tnum">\${S.tasks.filter(t=>t.status==="progress").length}</div><div class="sub">Across \${nBrands} brands</div></div>
