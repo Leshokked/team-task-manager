@@ -50,3 +50,17 @@ CREATE TABLE IF NOT EXISTS events (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_events_date ON events(date_start);
+
+-- OCTOBER_19_RECONCILIATION
+-- Add context without changing existing task or history records.
+CREATE TABLE IF NOT EXISTS task_context (
+  task_id TEXT PRIMARY KEY,
+  due_date TEXT,
+  notes TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS board_archive (
+  task_id TEXT PRIMARY KEY,
+  archived_at TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  visible INTEGER NOT NULL DEFAULT 1
+);

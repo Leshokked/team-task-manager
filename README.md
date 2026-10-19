@@ -65,3 +65,17 @@ New comments on the board can post to Slack. Without the secret below the featur
    ```
 
    After that, the secret reaches the Worker automatically on the next deploy.
+
+## Current production source and October 19 reconciliation
+
+`cloudflare/worker.js` is the source deployed at `ninebirds-board.carlos-nunez.workers.dev`; the React app and original HTML are historical design references. The live page matched this Worker at commit `d1f62a2` before the October 19 update. The database's current week was still July 27, so later tasks had accumulated on that sheet.
+
+The October 19 deployment adds Isaiah to the roster, a read-only Archive view, explicit Unverified / Awaiting confirmation states, and reconciled context for 11 current items. Riley's coverage needs and the October 26 Cookbook milestone are shown separately. No private email/DM links are published.
+
+- The October 19 section in `0001_schema.sql` adds task context and archive metadata.
+- The October 19 section in `0002_seed.sql` preserves the 67 previously displayed records and their related history, inserts the reconciled work once, and advances the current week to October 19. One private record remains stored but is excluded from the shared archive and detail route.
+- These reconciliation statements are idempotent and do not overwrite subsequent task edits or reset a later active week.
+- The unchanged Actions deploy workflow applies the schema and seed files, then deploys the Worker. It does not post comments or send Slack messages. The pre-existing optional webhook secret setup remains unchanged.
+- Validate with `node tests/board.test.mjs` (Node 24+); this exercises the Worker against SQLite, the refresh twice, archive boundaries, unknown completion, Isaiah ownership, and browser-script syntax.
+
+The original pick-your-name access model is unchanged. Historical statuses are retained as history; they are not current assignments or a new completion claim.

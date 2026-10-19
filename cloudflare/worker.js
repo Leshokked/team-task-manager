@@ -4,9 +4,9 @@
  * Backed by a D1 database (binding: DB). No dependencies, no build step.
  */
 
-const PEOPLE = ["brandon", "angela", "riley", "jess", "carlos"];
-const NAMES = ["Carlos", "Brandon", "Angela", "Riley", "Jess"];
-const STATUSES = ["todo", "progress", "review", "done"];
+const PEOPLE = ["brandon", "angela", "riley", "jess", "carlos", "isaiah"];
+const NAMES = ["Carlos", "Brandon", "Angela", "Riley", "Jess", "Isaiah"];
+const STATUSES = ["todo", "unverified", "progress", "review", "waiting", "done"];
 const PRIOS = ["urgent", "high", "medium", "low"];
 const DAYS = ["Any", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const ID_RE = /^[A-Za-z0-9-]{1,64}$/;
@@ -65,7 +65,7 @@ async function currentWeek(db) {
 async function getBoard(db) {
   const week = await currentWeek(db);
   const tasks = week
-    ? (await db.prepare("SELECT * FROM tasks WHERE week=?1 ORDER BY sort, created_at").bind(week).all()).results || []
+    ? (await db.prepare("SELECT t.*, c.due_date, c.notes FROM tasks t LEFT JOIN task_context c ON c.task_id=t.id WHERE t.week=?1 ORDER BY t.sort, t.created_at").bind(week).all()).results || []
     : [];
   const checks =
     (await db.prepare("SELECT task_id, COUNT(*) AS total, SUM(done) AS done FROM checklist GROUP BY task_id").all())
@@ -78,7 +78,17 @@ async function getBoard(db) {
         .prepare("SELECT week, COUNT(*) AS n FROM tasks WHERE status='done' GROUP BY week ORDER BY week DESC LIMIT 6")
         .all()
     ).results || [];
-  return { week, tasks, checks, commentCounts, throughput: throughput.reverse() };
+  const briefRow = await db.prepare("SELECT value FROM meta WHERE key=?1").bind("brief:" + week).first();
+  return { week, tasks, checks, commentCounts, throughput: throughput.reverse(), brief: briefRow ? JSON.parse(briefRow.value) : null };
+}
+
+async function getArchive(db, requestedWeek) {
+  const active = await currentWeek(db);
+  const weeks = (await db.prepare("SELECT t.week, COUNT(*) AS count FROM tasks t JOIN board_archive a ON a.task_id=t.id WHERE t.week < ?1 AND a.visible=1 GROUP BY t.week ORDER BY t.week DESC").bind(active).all()).results || [];
+  const week = requestedWeek || (weeks[0] && weeks[0].week) || "";
+  if (week && !weeks.some(w => w.week === week)) return bad("Archived week not found", 404);
+  const tasks = week ? (await db.prepare("SELECT t.* FROM tasks t JOIN board_archive a ON a.task_id=t.id WHERE t.week=?1 AND a.visible=1 ORDER BY t.sort, t.created_at").bind(week).all()).results || [] : [];
+  return json({ weeks, week, tasks });
 }
 
 async function createTask(db, body) {
@@ -151,6 +161,7 @@ async function updateTask(db, id, body) {
     .bind(...binds)
     .run();
   if (!r.meta.changes) return bad("Task not found", 404);
+  if (body.day !== undefined) await db.prepare("UPDATE task_context SET due_date=NULL WHERE task_id=?1").bind(id).run();
   return json({ ok: true });
 }
 
@@ -309,6 +320,7 @@ export default {
       await ensureHelperColumn(db);
 
       if (path === "/api/board" && method === "GET") return json(await getBoard(db));
+      if (path === "/api/archive" && method === "GET") return getArchive(db, url.searchParams.get("week"));
 
       if (path === "/api/tasks" && method === "POST") return createTask(db, await readBody(request));
 
@@ -334,6 +346,8 @@ export default {
       if ((m = path.match(/^\/api\/tasks\/([^/]+)\/detail$/)) && method === "GET") {
         const id = m[1];
         if (!ID_RE.test(id)) return bad("Invalid id");
+        const restricted = await db.prepare("SELECT task_id FROM board_archive WHERE task_id=?1 AND visible=0").bind(id).first();
+        if (restricted) return bad("Task not found", 404);
         const checklist =
           (await db.prepare("SELECT * FROM checklist WHERE task_id=?1 ORDER BY sort, id").bind(id).all()).results || [];
         const comments =
@@ -973,6 +987,7 @@ const PAGE = `<!DOCTYPE html>
       <button class="nav" data-view="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 9l-5 5-3-3-4 4"/></svg> Reports</button>
     </div>
     <div class="navsec">
+      <button class="nav" id="archiveNav" data-view="archive"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 3h18v5H3zM5 8v13h14V8M9 12h6"/></svg> Archive</button>
       <div class="label">Brands</div>
       <div id="brandList"></div>
     </div>
@@ -1008,9 +1023,17 @@ const PAGE = `<!DOCTYPE html>
       <!-- BOARD -->
       <section class="view active" id="view-board">
         <div class="board-coord" id="boardCoord"><span class="lead">Index</span><span class="cx">Loading…</span></div>
+        <div id="weekBrief"></div>
         <div class="stats" id="statsStrip"></div>
         <div class="board" id="boardView"></div>
         <div class="list hidden" id="listView"></div>
+      </section>
+
+      <section class="view" id="view-archive">
+        <div class="vhead"><h2>Task archive</h2><p>Previous weeks, preserved with their last recorded status, comments and checklists. Archived October 19 after Carlos confirmed the displayed work was finished or superseded. Original statuses are retained for history.</p></div>
+        <label class="rail-k" for="archiveWeek">Week</label>
+        <select class="propsel" id="archiveWeek" style="max-width:300px;margin:8px 0 24px"></select>
+        <div class="list" id="archiveView"></div>
       </section>
 
       <!-- MY TASKS -->
@@ -1071,11 +1094,11 @@ const PAGE = `<!DOCTYPE html>
 
 <script>
 /* ---------- constants ---------- */
-const PEOPLE={CN:{key:"carlos",name:"Carlos",color:"#2E6EDD"},BR:{key:"brandon",name:"Brandon",color:"#6B4F3A"},AN:{key:"angela",name:"Angela",color:"#7A8450"},RY:{key:"riley",name:"Riley",color:"#5B6B8C"},JS:{key:"jess",name:"Jess",color:"#4A7C7E"}};
-const INITIALS={carlos:"CN",brandon:"BR",angela:"AN",riley:"RY",jess:"JS"};
-const columns=[{id:"todo",name:"To Do · This Week",color:"#969188"},{id:"progress",name:"In Progress",color:"#2E6EDD"},{id:"review",name:"In Review",color:"#B5842B"},{id:"done",name:"Done",color:"#3C8C5F"}];
-const colColor={todo:"#969188",progress:"#2E6EDD",review:"#B5842B",done:"#3C8C5F"};
-const colName={todo:"To Do",progress:"In Progress",review:"In Review",done:"Done"};
+const PEOPLE={CN:{key:"carlos",name:"Carlos",color:"#2E6EDD"},BR:{key:"brandon",name:"Brandon",color:"#6B4F3A"},AN:{key:"angela",name:"Angela",color:"#7A8450"},RY:{key:"riley",name:"Riley",color:"#5B6B8C"},JS:{key:"jess",name:"Jess",color:"#4A7C7E"},IS:{key:"isaiah",name:"Isaiah",color:"#8663A3"}};
+const INITIALS={carlos:"CN",brandon:"BR",angela:"AN",riley:"RY",jess:"JS",isaiah:"IS"};
+const columns=[{id:"todo",name:"This Week · To Do / Verify",color:"#969188"},{id:"progress",name:"In Progress",color:"#2E6EDD"},{id:"review",name:"In Review",color:"#B5842B"},{id:"done",name:"Done",color:"#3C8C5F"}];
+const colColor={unverified:"#969188",waiting:"#B5842B",todo:"#969188",progress:"#2E6EDD",review:"#B5842B",done:"#3C8C5F"};
+const colName={unverified:"Unverified",waiting:"Awaiting confirmation",todo:"To Do",progress:"In Progress",review:"In Review",done:"Done"};
 const PRIOS=["urgent","high","medium","low"];
 const BRAND_COLORS={"9 birds":"#2E6EDD","9 birds creative":"#2E6EDD","auteur":"#8C7A55","cmd":"#6B4F3A","coffee machine depot":"#6B4F3A","jurassic magic":"#2E8B6F","convi":"#2E8B6F","jm/convi":"#2E8B6F","jm · convi":"#2E8B6F","markibar":"#A65A3C","markibar usa":"#A65A3C","cout de la liberte":"#7A5C58","cdll":"#7A5C58","bronco":"#C07A2D","lost explorer":"#4A6C6F","second layer":"#3A3A44","re/creation cafe":"#7A9E5E","stanza":"#5B6B8C","admin":"#969188"};
 const FALLBACK=["#2E6EDD","#8C7A55","#2E8B6F","#6B4FA0","#C07A2D","#4A7C7E","#A65A3C","#5B6B8C"];
@@ -1128,6 +1151,7 @@ const ic={
 
 /* ---------- state ---------- */
 let S={week:"",tasks:[],checks:{},comments:{},throughput:[]};
+let AR={weeks:[],week:"",tasks:[]};
 let me=localStorage.getItem("nb-me")||"";
 let view="board",vmode="board",fWho=null,fPrio="all",qtext="",dragId=null,openTaskId=null;
 
@@ -1142,7 +1166,7 @@ const post=(path,body,method)=>api(path,{method:method||"POST",headers:{"Content
 async function load(){
  try{
   const d=await api("/api/board");
-  S.week=d.week;S.tasks=d.tasks||[];S.throughput=d.throughput||[];
+  S.week=d.week;S.tasks=d.tasks||[];S.throughput=d.throughput||[];S.brief=d.brief;
   S.checks={};(d.checks||[]).forEach(c=>S.checks[c.task_id]={total:c.total,done:c.done||0});
   S.comments={};(d.commentCounts||[]).forEach(c=>S.comments[c.task_id]=c.n);
   renderAll();
@@ -1152,7 +1176,7 @@ async function load(){
 
 /* ---------- helpers ---------- */
 function dueInfo(day){
- if(!S.week||!day||day==="Any")return{label:"This week",state:""};
+ if(!S.week||!day||day==="Any")return{label:"No date set",state:""};
  const p=S.week.split("-").map(Number);
  const date=new Date(p[0],p[1]-1,p[2]+(DAY_OFFSET[day]||0));
  const label=date.toLocaleDateString("en-US",{month:"short",day:"numeric"});
@@ -1160,6 +1184,13 @@ function dueInfo(day){
  const state=date<today?"over":date.getTime()===today.getTime()?"today":"";
  return{label,state};
 }
+function taskDue(t){
+ if(!t.due_date)return dueInfo(t.day);
+ const date=new Date(t.due_date+"T12:00:00"),now=new Date(),today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+ const day=new Date(date.getFullYear(),date.getMonth(),date.getDate());
+ return{label:date.toLocaleDateString("en-US",{month:"short",day:"numeric"}),state:day<today?"over":day.getTime()===today.getTime()?"today":""};
+}
+const inColumn=(t,id)=>t.status===id||(id==="todo"&&t.status==="unverified")||(id==="review"&&t.status==="waiting");
 const dueClass=s=>s==="over"?"over":s==="today"?"today":"";
 const av=(w,cls)=>PEOPLE[w]?\`<div class="avatar \${cls||""}" style="background:\${PEOPLE[w].color}" title="\${PEOPLE[w].name}">\${w}</div>\`:"";
 const pIni=t=>INITIALS[t.person]||"CN";
@@ -1193,7 +1224,7 @@ function showToast(msg){toast.querySelector("span").textContent=msg;toast.classL
 /* ---------- cards / rows ---------- */
 function taskCard(t){
  const ck=S.checks[t.id],cn=S.comments[t.id]||0,prio=t.prio||"medium";
- const due=dueInfo(t.day);
+ const due=taskDue(t);
  let prog="";
  if(ck&&ck.total>0){
   const pct=Math.round(ck.done/ck.total*100),barC=ck.done===ck.total?"var(--good)":"var(--accent)";
@@ -1202,13 +1233,14 @@ function taskCard(t){
  return \`<article class="card p-\${prio} \${t.status==="done"?"done":""} \${visible(t)?"":"fade"}" draggable="true" data-id="\${esc(t.id)}">
   <div class="card-top"><span class="code">\${esc(taskCode(t))}</span><span class="tag">\${brandIcon(t.brand)}\${esc(t.brand||"General")}</span><span class="prio \${prio}">\${prio}</span></div>
   <h4>\${esc(t.title)}</h4>
+  \${t.status==="unverified"||t.status==="waiting"?\`<p class="dr-desc" style="font-size:12px;margin:8px 0">\${esc(colName[t.status])}</p>\`:""}
   \${prog}
   <div class="card-foot">\${avPair(t)}<span class="due \${t.status==="done"?"":dueClass(due.state)}">\${ic.cal}\${t.status==="done"?"Done":due.label}</span>
    <div class="metas">\${cn?\`<span class="metaic">\${ic.chat}\${cn}</span>\`:""}\${t.carry>0?\`<span class="metaic carrytag">↩ ×\${t.carry}</span>\`:""}\${t.status==="done"&&t.updated_by?\`<span class="metaic">✓ \${esc(t.updated_by)}</span>\`:""}</div></div>
  </article>\`;
 }
 function listRow(t){
- const ck=S.checks[t.id],due=dueInfo(t.day),prio=t.prio||"medium";
+ const ck=S.checks[t.id],due=taskDue(t),prio=t.prio||"medium";
  return \`<div class="lrow \${t.status==="done"?"done":""} \${visible(t)?"":"fade"}" data-id="\${esc(t.id)}">
   <div class="lcheck">\${t.status==="done"?ic.check:""}</div>
   <div class="ltitle">\${brandIcon(t.brand,14)}<span class="tt">\${esc(t.title)}</span>\${t.carry>0?\`<span class="metaic carrytag">↩ ×\${t.carry}</span>\`:""}\${t.helper&&t.helper===meKey()?\`<span class="helpingtag">helping \${PEOPLE[pIni(t)]?PEOPLE[pIni(t)].name:""}</span>\`:""}</div>
@@ -1233,16 +1265,21 @@ function renderSidebar(){
 }
 function renderTopbar(){
  const wl=S.week?\`Wk.\${weekNum()} — \${weekShort()}\`:"Loading…";
- const titles={board:["Team Board",\`\${wl} — \${openTasks().length} active\`],mine:["My Tasks",\`\${me||"You"} — \${wl}\`],calendar:["Calendar",wl],events:["Events","Every brand, months out — not just this week"],reports:["Reports",\`\${wl} — team analytics\`]};
+ const titles={board:["Team Board",\`\${wl} — \${openTasks().length} active\`],mine:["My Tasks",\`\${me||"You"} — \${wl}\`],calendar:["Calendar",wl],events:["Events","Every brand, months out — not just this week"],reports:["Reports",\`\${wl} — team analytics\`],archive:["Task Archive","Preserved history · read only"]};
  document.getElementById("vTitle").textContent=titles[view][0];
  document.getElementById("vSub").textContent=titles[view][1];
- document.getElementById("newWeek").classList.toggle("hidden",me!=="Carlos");
- const over=S.tasks.filter(t=>t.status!=="done"&&dueInfo(t.day).state==="over").length;
+ document.getElementById("newWeek").classList.toggle("hidden",me!=="Carlos"||view==="archive");
+ document.getElementById("newTask").classList.toggle("hidden",view==="archive");
+ const over=S.tasks.filter(t=>["todo","progress","review","waiting"].includes(t.status)&&taskDue(t).state==="over").length;
  document.getElementById("bellBadge").classList.toggle("hidden",!over);
+}
+function renderWeekBrief(){
+ const b=S.brief;
+ document.getElementById("weekBrief").innerHTML=b?\`<div class="panel" style="margin-bottom:20px"><h3>Week of October 19, 2026</h3><p class="psub">Reconciled October 19 · Unverified means completion has not been confirmed.</p><p class="dr-desc"><b>Riley — away.</b> \${esc(b.coverage)}</p><p class="dr-desc"><b>Next week · Oct 26 · Angela:</b> \${esc(b.milestone)}</p><p class="dr-desc" style="margin-bottom:0">\${esc(b.completed)}</p></div>\`:"";
 }
 function renderStats(){
  const open=openTasks();
- const overdue=open.filter(t=>dueInfo(t.day).state==="over").length;
+ const overdue=open.filter(t=>t.status!=="unverified"&&taskDue(t).state==="over").length;
  const done=S.tasks.filter(t=>t.status==="done").length;
  const pct=S.tasks.length?Math.round(done/S.tasks.length*100):0;
  const nBrands=new Set(open.map(t=>t.brand).filter(Boolean)).size;
@@ -1250,13 +1287,13 @@ function renderStats(){
  document.getElementById("statsStrip").innerHTML=\`
   <div class="stat"><div class="k">Open this week</div><div class="v tnum">\${open.length}</div><div class="bar"><i style="width:\${100-pct}%;background:var(--accent)"></i></div></div>
   <div class="stat"><div class="k">In progress</div><div class="v neutral tnum">\${S.tasks.filter(t=>t.status==="progress").length}</div><div class="sub">Across \${nBrands} brands</div></div>
-  <div class="stat"><div class="k">Needs review</div><div class="v tnum" style="color:var(--warn)">\${S.tasks.filter(t=>t.status==="review").length}</div><div class="sub">Waiting on sign-off</div></div>
-  <div class="stat"><div class="k">Overdue</div><div class="v tnum" style="color:\${overdue?"var(--crit)":"var(--ink)"}">\${overdue}</div><div class="sub">\${overdue?'<span class="trend down">needs attention</span>':"on schedule"}</div></div>
+  <div class="stat"><div class="k">Needs review</div><div class="v tnum" style="color:var(--warn)">\${S.tasks.filter(t=>inColumn(t,"review")).length}</div><div class="sub">Approval / confirmation</div></div>
+  <div class="stat"><div class="k">Overdue</div><div class="v tnum" style="color:\${overdue?"var(--crit)":"var(--ink)"}">\${overdue}</div><div class="sub">\${overdue?'<span class="trend down">needs attention</span>':"No confirmed overdue work"}</div></div>
   <div class="stat"><div class="k">Done</div><div class="v neutral tnum">\${done}</div><div class="sub"><span class="trend up">\${pct}%</span> of the sheet</div></div>\`;
 }
 function renderBoard(){
  document.getElementById("boardView").innerHTML=columns.map((col,ci)=>{
-  const items=sortVis(S.tasks.filter(t=>t.status===col.id));
+  const items=sortVis(S.tasks.filter(t=>inColumn(t,col.id)));
   return \`<section class="col \${col.id==="done"?"done-col":""}" data-col="\${col.id}">
    <div class="col-head"><span class="colidx">\${String(ci+1).padStart(2,"0")}</span><span class="swatch" style="background:\${col.color}"></span><h3>\${col.name}</h3><span class="n tnum">\${items.length}</span>
    <button class="add" data-addcol="\${col.id}" aria-label="Add">\${ic.plus}</button></div>
@@ -1265,8 +1302,8 @@ function renderBoard(){
 }
 function renderList(el,items){
  el.innerHTML=columns.map(col=>{
-  const its=sortVis(items.filter(t=>t.status===col.id));if(!its.length)return"";
-  return \`<div class="lgroup-head"><span class="swatch" style="background:\${col.color}"></span><h3>\${colName[col.id]}</h3><span class="n tnum">\${its.length}</span></div>\`+its.map(listRow).join("");
+  const its=sortVis(items.filter(t=>inColumn(t,col.id)));if(!its.length)return"";
+  return \`<div class="lgroup-head"><span class="swatch" style="background:\${col.color}"></span><h3>\${col.id==="todo"?"To Do / Unverified":col.id==="review"?"Review / Confirmation":colName[col.id]}</h3><span class="n tnum">\${its.length}</span></div>\`+its.map(listRow).join("");
  }).join("")||\`<div class="lgroup-head"><h3>Nothing here yet</h3></div>\`;
 }
 function renderMine(){
@@ -1275,7 +1312,7 @@ function renderMine(){
  document.getElementById("mineCount").textContent=openMine.length;
  const carried=mine.some(t=>t.carry>0&&t.status!=="done");
  document.getElementById("mineTxt").innerHTML=me
-  ?\`You own <b>\${mine.filter(t=>t.status==="todo").length} to-dos</b>, <b>\${mine.filter(t=>t.status==="progress").length} in progress</b> and <b>\${mine.filter(t=>t.status==="review").length} in review</b>.\${carried?" Carried-over items are marked ↩ — clear those first.":" Nothing carried over. Clean sheet."}\`
+  ?\`You have <b>\${mine.filter(t=>t.status==="unverified").length} unverified</b>, <b>\${mine.filter(t=>t.status==="todo").length} to-dos</b>, <b>\${mine.filter(t=>t.status==="progress").length} in progress</b> and <b>\${mine.filter(t=>inColumn(t,"review")).length} awaiting review / confirmation</b>.\${carried?" Carried-over items are marked ↩ — clear those first.":" Nothing carried over."}\`
   :"Pick your name to see your tasks.";
  renderList(document.getElementById("mineView"),mine);
 }
@@ -1286,7 +1323,7 @@ function renderCalendar(){
  document.getElementById("calView").innerHTML=days.map(d=>{
   const items=S.tasks.filter(t=>(t.day===d)||(d==="Any"&&(!t.day||t.day==="Any")));
   const date=d!=="Any"&&S.week?dueInfo(d).label:"";
-  return \`<div class="calday \${d===todayDow?"today":""}"><div class="calhd"><span class="dow">\${d==="Any"?"Anytime":d}</span><span class="dnum">\${date}</span></div>
+  return \`<div class="calday \${d===todayDow?"today":""}"><div class="calhd"><span class="dow">\${d==="Any"?"No date set":d}</span><span class="dnum">\${date}</span></div>
    \${items.length?items.map(t=>\`<div class="calchip" data-id="\${esc(t.id)}" style="border-left-color:\${brandColor(t.brand)};\${t.status==="done"?"opacity:.55":""}"><span class="cb">\${esc(t.brand||PEOPLE[pIni(t)].name)}</span><span class="ct">\${esc(t.title)}</span></div>\`).join(""):'<div class="calempty">—</div>'}</div>\`;
  }).join("");
 }
@@ -1310,14 +1347,14 @@ function renderReports(){
  document.getElementById("throughput").innerHTML=tp.length?tp.map((w,i)=>
   \`<div class="colw"><div class="cbar \${i===tp.length-1?"":"muted"}" style="height:\${Math.max(4,w.n/tMax*100)}%"><span class="tnum">\${w.n}</span></div><div class="clab">\${new Date(w.week+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div></div>\`).join("")
   :'<div class="calempty" style="width:100%">Completions will chart here week by week.</div>';
- const st=["todo","progress","review"].map(k=>({k,n:S.tasks.filter(t=>t.status===k).length}));
+ const st=Object.keys(colName).map(k=>({k,n:S.tasks.filter(t=>t.status===k).length}));
  const total=Math.max(1,st.reduce((a,b)=>a+b.n,0));
  document.getElementById("statusBar").innerHTML=st.map(s=>\`<i style="width:\${s.n/total*100}%;background:\${colColor[s.k]}"></i>\`).join("");
  document.getElementById("statusLegend").innerHTML=st.map(s=>\`<span><span class="sw" style="background:\${colColor[s.k]}"></span>\${colName[s.k]} · \${s.n}</span>\`).join("");
  document.getElementById("statusSub").textContent=\`Where the \${S.tasks.length} tasks on this week's sheet sit right now\`;
 }
 function renderAll(){
- renderSidebar();renderTopbar();renderStats();renderBoard();
+ renderSidebar();renderTopbar();renderWeekBrief();renderStats();renderBoard();
  renderList(document.getElementById("listView"),S.tasks);
  renderMine();renderCalendar();renderReports();renderEvents();
  document.getElementById("clearFilter").classList.toggle("hidden",!(fWho||fPrio!=="all"||qtext));
@@ -1360,7 +1397,7 @@ async function openDrawer(id){
  try{detail=await api("/api/tasks/"+encodeURIComponent(id)+"/detail");}catch(e){}
  const cl=detail.checklist||[],cms=detail.comments||[];
  const nDone=cl.filter(c=>c.done).length;
- const due=dueInfo(t.day),sc=colColor[t.status],prio=t.prio||"medium";
+ const due=taskDue(t),sc=colColor[t.status],prio=t.prio||"medium";
  const meIni=Object.keys(PEOPLE).find(k=>PEOPLE[k].name===me)||"CN";
  drawer.innerHTML=\`
   <div class="tv-head">
@@ -1370,6 +1407,7 @@ async function openDrawer(id){
   <div class="tv-body">
    <div class="tv-main">
     <h2>\${esc(t.title)}</h2>
+    \${t.notes?\`<div class="dr-desc" style="white-space:pre-line"><b>Reconciled October 19</b><br>\${esc(t.notes)}</div>\`:""}
     <div>
      <div class="dsec-t"><span>Checklist</span><span style="font-weight:600;text-transform:none;letter-spacing:0">\${nDone}/\${cl.length}</span></div>
      \${cl.length?\`<div class="subprog"><div class="bar"><i style="width:\${cl.length?nDone/cl.length*100:0}%;background:\${nDone===cl.length?"var(--good)":"var(--accent)"}"></i></div><span class="sc tnum">\${nDone}/\${cl.length}</span></div>\`:""}
@@ -1389,16 +1427,16 @@ async function openDrawer(id){
    </div>
    <div class="tv-rail">
     <div class="rail-grp"><span class="rail-k">Status</span>
-     <select class="propsel" id="selStatus">\${columns.map(c=>\`<option value="\${c.id}" \${t.status===c.id?"selected":""}>\${colName[c.id]}</option>\`).join("")}</select></div>
+     <select class="propsel" id="selStatus">\${Object.keys(colName).map(id=>({id})).map(c=>\`<option value="\${c.id}" \${t.status===c.id?"selected":""}>\${colName[c.id]}</option>\`).join("")}</select></div>
     <div class="rail-grp"><span class="rail-k">Assignee</span>
      <select class="propsel" id="selPerson">\${Object.keys(PEOPLE).map(k=>\`<option value="\${PEOPLE[k].key}" \${t.person===PEOPLE[k].key?"selected":""}>\${PEOPLE[k].name}</option>\`).join("")}</select></div>
     <div class="rail-grp"><span class="rail-k">Working with</span>
      <select class="propsel" id="selHelper"><option value="" \${!t.helper?"selected":""}>None</option>\${Object.keys(PEOPLE).filter(k=>PEOPLE[k].key!==t.person).map(k=>\`<option value="\${PEOPLE[k].key}" \${t.helper===PEOPLE[k].key?"selected":""}>\${PEOPLE[k].name}</option>\`).join("")}</select></div>
     <div class="rail-grp"><span class="rail-k">Priority</span>
      <select class="propsel" id="selPrio">\${PRIOS.map(p=>\`<option value="\${p}" \${prio===p?"selected":""}>\${p}</option>\`).join("")}</select></div>
-    <div class="rail-grp"><span class="rail-k">Day</span>
-     <select class="propsel" id="selDay">\${["Any","Mon","Tue","Wed","Thu","Fri"].map(d=>\`<option value="\${d}" \${(t.day||"Any")===d?"selected":""}>\${d==="Any"?"Anytime this week":d+" · "+dueInfo(d).label}</option>\`).join("")}</select>
-     \${due.state==="over"&&t.status!=="done"?'<span style="color:var(--crit);font-size:11px;font-weight:700">overdue</span>':""}</div>
+    <div class="rail-grp"><span class="rail-k">Day</span>\${t.due_date?\`<span class="rail-v">Confirmed date: \${esc(t.due_date)}</span>\`:""}
+     <select class="propsel" id="selDay">\${["Any","Mon","Tue","Wed","Thu","Fri"].map(d=>\`<option value="\${d}" \${(t.day||"Any")===d?"selected":""}>\${d==="Any"?"No date set":d+" · "+dueInfo(d).label}</option>\`).join("")}</select>
+     \${due.state==="over"&&t.status!=="done"&&t.status!=="unverified"?'<span style="color:var(--crit);font-size:11px;font-weight:700">overdue</span>':""}</div>
     <div class="rail-div"></div>
     <div class="rail-grp"><span class="rail-k">Brand</span><span class="rail-v">\${brandIcon(t.brand,14)}\${esc(t.brand||"General")}</span></div>
     \${t.carry>0?\`<div class="rail-grp"><span class="rail-k">History</span><span class="rail-v carrytag">↩ carried over ×\${t.carry}</span></div>\`:""}
@@ -1472,8 +1510,8 @@ function openCreate(){
      <select class="propsel" id="ntHelper"></select></div>
     <div class="rail-grp"><span class="rail-k">Brand</span>
      <input class="propsel" id="ntBrand" placeholder="AUTEUR, CMD, MarkiBar…" maxlength="60"></div>
-    <div class="rail-grp"><span class="rail-k">Day</span>
-     <select class="propsel" id="ntDay">\${["Any","Mon","Tue","Wed","Thu","Fri"].map(d=>\`<option value="\${d}">\${d==="Any"?"Anytime this week":d}</option>\`).join("")}</select></div>
+    <div class="rail-grp"><span class="rail-k">Day</span>\${t.due_date?\`<span class="rail-v">Confirmed date: \${esc(t.due_date)}</span>\`:""}
+     <select class="propsel" id="ntDay">\${["Any","Mon","Tue","Wed","Thu","Fri"].map(d=>\`<option value="\${d}">\${d==="Any"?"No date set":d}</option>\`).join("")}</select></div>
     <div class="rail-grp"><span class="rail-k">Priority</span>
      <select class="propsel" id="ntPrio">\${PRIOS.map(p=>\`<option value="\${p}" \${p==="medium"?"selected":""}>\${p}</option>\`).join("")}</select></div>
     <div class="rail-div"></div>
@@ -1627,14 +1665,34 @@ function openCreateEvent(){
 }
 document.getElementById("newEvent").addEventListener("click",openCreateEvent);
 
+/* ---------- historical weeks (read only) ---------- */
+async function loadArchive(week){
+ try{
+  AR=await api("/api/archive"+(week?"?week="+encodeURIComponent(week):""));
+  document.getElementById("archiveWeek").innerHTML=AR.weeks.map(w=>\`<option value="\${esc(w.week)}" \${w.week===AR.week?"selected":""}>\${esc(w.week)} · \${w.count} tasks</option>\`).join("");
+  document.getElementById("archiveView").innerHTML=AR.tasks.length?AR.tasks.map(t=>\`<button class="lrow" style="width:100%;text-align:left" data-archive-id="\${esc(t.id)}"><span class="lmeta">\${avPair(t,"sm")}</span><span class="ltitle">\${esc(t.title)}</span><span class="lmeta">\${esc(PEOPLE[pIni(t)].name)}</span><span class="lmeta">\${esc(t.brand)}</span><span class="lmeta">\${esc(t.day)}</span><span class="lmeta">\${esc(colName[t.status]||t.status)}</span></button>\`).join(""):'<p class="dr-desc">No archived weeks yet.</p>';
+ }catch(e){showToast(e.message)}
+}
+async function openArchiveTask(id){
+ const t=AR.tasks.find(t=>t.id===id);if(!t)return;
+ let detail;try{detail=await api("/api/tasks/"+encodeURIComponent(id)+"/detail")}catch(e){showToast(e.message);return}
+ drawer.innerHTML=\`<div class="tv-head"><div class="tv-crumb"><b>Archive</b> · \${esc(t.week)}</div><button class="dr-close" id="drClose" aria-label="Close">\${ic.x}</button></div><div class="tv-body"><div class="tv-main"><h2>\${esc(t.title)}</h2><p class="dr-desc">\${esc(PEOPLE[pIni(t)].name)} · \${esc(t.brand||"General")} · Last recorded: \${esc(colName[t.status]||t.status)}</p><p class="dr-desc">Historical record, preserved as entered. This is not current work.</p><div class="dsec-t">Checklist</div>\${detail.checklist.map(c=>\`<p class="dr-desc">\${c.done?"Completed: ":"Not checked: "}\${esc(c.label)}</p>\`).join("")||'<p class="dr-desc">No checklist.</p>'}<div class="dsec-t">Activity</div>\${detail.comments.map(c=>\`<div class="comment"><div><div class="cbubble"><div class="cwho">\${esc(c.author)}</div>\${esc(c.body)}</div><div class="ctime">\${esc(c.created_at)}</div></div></div>\`).join("")||'<p class="dr-desc">No comments.</p>'}</div></div>\`;
+ drawer.classList.add("open");drawer.setAttribute("aria-hidden","false");scrim.classList.add("open");
+ document.getElementById("drClose").onclick=closeDrawer;
+}
+document.getElementById("archiveWeek").addEventListener("change",e=>loadArchive(e.target.value));
+document.getElementById("archiveView").addEventListener("click",e=>{const t=e.target.closest("[data-archive-id]");if(t)openArchiveTask(t.dataset.archiveId)});
+document.getElementById("archiveNav").addEventListener("click",()=>route("archive"));
+
 /* ---------- routing / chrome ---------- */
 function route(v){
  view=v;
- document.querySelectorAll("#mainNav .nav").forEach(n=>n.classList.toggle("active",n.dataset.view===v));
+ document.querySelectorAll(".nav[data-view]").forEach(n=>n.classList.toggle("active",n.dataset.view===v));
  document.querySelectorAll(".view").forEach(x=>x.classList.toggle("active",x.id==="view-"+v));
  document.getElementById("viewToggle").style.display=(v==="board")?"":"none";
  document.getElementById("filterbar").style.display=(v==="board"||v==="mine")?"":"none";
  if(v==="events")loadEvents();
+ if(v==="archive")loadArchive(AR.week);
  renderTopbar();
 }
 document.querySelectorAll("#mainNav .nav").forEach(n=>n.addEventListener("click",()=>route(n.dataset.view)));
@@ -1646,7 +1704,8 @@ document.querySelectorAll("#viewToggle .seg").forEach(b=>b.addEventListener("cli
 }));
 
 // avatars filter
-document.getElementById("avstack").innerHTML=Object.keys(PEOPLE).map(k=>\`<div class="avatar" style="background:\${PEOPLE[k].color}" data-who="\${k}" title="\${PEOPLE[k].name}">\${k}</div>\`).join("");
+document.getElementById("avstack").addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.matches("[data-who]")){e.preventDefault();e.target.click()}});
+document.getElementById("avstack").innerHTML=Object.keys(PEOPLE).map(k=>\`<div class="avatar" style="background:\${PEOPLE[k].color}" data-who="\${k}" title="\${PEOPLE[k].name}" role="button" tabindex="0" aria-label="Filter by \${PEOPLE[k].name}">\${k}</div>\`).join("")+'<span style="font-size:12px;margin-left:8px">Isaiah · JM strategy</span>';
 document.getElementById("avstack").addEventListener("click",e=>{
  const a=e.target.closest(".avatar");if(!a)return;
  fWho=fWho===a.dataset.who?null:a.dataset.who;renderAll();
@@ -1706,8 +1765,8 @@ boardEl.addEventListener("drop",async e=>{
 
 // bell
 document.getElementById("bellBtn").addEventListener("click",()=>{
- const over=S.tasks.filter(t=>t.status!=="done"&&dueInfo(t.day).state==="over").length;
- const rev=S.tasks.filter(t=>t.status==="review").length;
+ const over=S.tasks.filter(t=>["todo","progress","review","waiting"].includes(t.status)&&taskDue(t).state==="over").length;
+ const rev=S.tasks.filter(t=>inColumn(t,"review")).length;
  showToast(over||rev?\`\${over} overdue · \${rev} waiting in review\`:"All clear — nothing overdue");
 });
 // new task
